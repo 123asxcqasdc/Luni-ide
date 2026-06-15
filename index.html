@@ -209,6 +209,7 @@
     cursor: col-resize;
     background: var(--line);
     transition: background .12s;
+    z-index: 8;          /* выше .sim-panel: кнопка-открывашка всегда доступна */
   }
   .col-resizer::before {           /* расширенная зона захвата */
     content: "";
@@ -457,6 +458,8 @@
     background: var(--console-bg);
     min-width: 0;
     overflow: hidden;
+    position: relative;
+    z-index: 6;          /* выше .sim-panel: закрытая панель прячется за консолью */
   }
   .tabs {
     display: flex;
@@ -1048,32 +1051,35 @@
   ::-webkit-scrollbar-track { background: transparent; }
 
   /* ===================== 2D-симулятор ===================== */
+  /* кнопка-открывашка — прямо на разделителе код|консоль */
   .sim-toggle {
-    position: fixed; left: calc(58% - 16px); top: 50%;
-    transform: translateY(-50%);
-    width: 26px; height: 64px;
-    border: 1px solid var(--line); border-right: none;
-    border-radius: 8px 0 0 8px;
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 22px; height: 60px;
+    border: 1px solid var(--accent-dim); border-radius: 6px;
     background: var(--panel); color: #fff;
-    font-size: 13px; cursor: pointer; z-index: 40;
+    font-size: 12px; line-height: 1; cursor: pointer; z-index: 12;
+    display: flex; align-items: center; justify-content: center;
     box-shadow: var(--shadow-1);
-    transition: background .15s var(--ease), transform .25s var(--ease), left .25s var(--ease);
+    transition: background .15s var(--ease);
   }
   .sim-toggle:hover { background: var(--accent-dim); }
-  .sim-toggle.open { left: calc(62% - 25px); transform: translateY(-50%) rotate(180deg); }
-  @media (max-width: 1100px) { .sim-toggle.open { left: calc(100% - 360px - 25px); } }
 
+  /* панель: правый край у разделителя, выезжает ВЛЕВО на ⅓ экрана.
+     z-index ниже .side → в закрытом виде уезжает за консоль и прячется.
+     top / height / right задаёт JS под текущую геометрию. */
   .sim-panel {
     position: fixed;
-    top: 60px; bottom: 34px; right: 0;
-    width: 38vw; min-width: 360px; max-width: 760px;
+    top: 96px; right: 426px; height: 60vh;
+    width: 33vw; min-width: 320px; max-width: 720px;
     background: #0f1620;
-    border-left: 1px solid var(--accent-dim);
-    box-shadow: -10px 0 30px rgba(0,0,0,0.28);
+    border: 1px solid var(--accent-dim); border-right: none;
+    box-shadow: -14px 0 34px rgba(0,0,0,0.32);
     display: flex; flex-direction: column;
-    transform: translateX(102%);
+    transform: translateX(100%);
     transition: transform .28s var(--ease);
-    z-index: 39;
+    z-index: 4;
   }
   .sim-panel.open { transform: translateX(0); }
 
@@ -1208,7 +1214,9 @@
   </section>
 
   <div class="col-resizer" id="colResizer"
-       title="Потяните, чтобы изменить ширину панели (двойной клик — сброс)"></div>
+       title="Потяните, чтобы изменить ширину панели (двойной клик — сброс)">
+    <button class="sim-toggle" id="simToggle" title="Симулятор (2D)">◀</button>
+  </div>
 
   <aside class="side">
     <div class="tabs" id="sideTabs">
@@ -1296,8 +1304,7 @@
   </aside>
 </main>
 
-<!-- ===== 2D-симулятор: стрелка-открывашка + выезжающая панель ===== -->
-<button class="sim-toggle" id="simToggle" title="Симулятор (2D)">▶</button>
+<!-- ===== 2D-симулятор: выезжающая панель (кнопка-открывашка — в разделителе) ===== -->
 <div class="sim-panel" id="simPanel">
   <div class="sim-bar">
     <button class="sim-btn run" id="simRun" title="Запустить скетч в симуляторе">▶ Старт</button>
@@ -2319,7 +2326,7 @@ $("#docsOpenExt").addEventListener("click", () => api("/api/open", { url: DOCS_U
   function onMove(e) {
     const w = clamp(startW + (startX - e.clientX));   // тянем влево → панель шире
     main.style.setProperty("--side-w", w + "px");
-    if (!raf) raf = requestAnimationFrame(() => { raf = 0; editor.refresh(); });
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; editor.refresh(); if (window._simReposition) window._simReposition(); });
   }
   function onUp() {
     rez.classList.remove("dragging");
@@ -2344,6 +2351,7 @@ $("#docsOpenExt").addEventListener("click", () => api("/api/open", { url: DOCS_U
     main.style.removeProperty("--side-w");
     localStorage.removeItem(KEY);
     editor.refresh();
+    if (window._simReposition) window._simReposition();
   });
   window.addEventListener("resize", () => {
     const cur = side.getBoundingClientRect().width;
@@ -2600,13 +2608,29 @@ $("#themeSelect").addEventListener("change", function () {
   };
   const scenName = (n) => ({ arena: "пусто", line: "линия", obstacles: "препятствия" }[n] || n);
 
+  // правый край панели — точно у разделителя код|консоль; высота — как у main
+  function positionSimPanel() {
+    const main = document.querySelector("main"), side = document.querySelector(".side");
+    if (!main || !side) return;
+    const mr = main.getBoundingClientRect();
+    panel.style.top = mr.top + "px";
+    panel.style.height = mr.height + "px";
+    panel.style.right = (side.getBoundingClientRect().width + 6) + "px";
+  }
   function setOpen(v) {
     open = v;
+    if (v) positionSimPanel();
     panel.classList.toggle("open", v);
-    toggle.classList.toggle("open", v);
+    toggle.textContent = v ? "▶" : "◀";
+    toggle.title = v ? "Свернуть симулятор" : "Симулятор (2D)";
     if (v) requestAnimationFrame(() => sim.resize());
   }
-  toggle.addEventListener("click", () => setOpen(!open));
+  // панель следует за разделителем при его перетаскивании
+  window._simReposition = () => { if (open) { positionSimPanel(); sim.resize(); } };
+  // клик/таскание по кнопке не должны запускать перетаскивание разделителя
+  toggle.addEventListener("mousedown", (e) => e.stopPropagation());
+  toggle.addEventListener("dblclick", (e) => e.stopPropagation());
+  toggle.addEventListener("click", (e) => { e.stopPropagation(); setOpen(!open); });
   $("#simClose").addEventListener("click", () => setOpen(false));
 
   $("#simRun").addEventListener("click", () => {
@@ -2622,7 +2646,7 @@ $("#themeSelect").addEventListener("change", function () {
   $("#simReset").addEventListener("click", () => sim.reset());
   $("#simScenario").addEventListener("change", (e) => sim.setScenario(e.target.value));
   $("#simSpeed").addEventListener("change", (e) => { sim.speed = parseFloat(e.target.value); });
-  window.addEventListener("resize", () => { if (open) sim.resize(); });
+  window.addEventListener("resize", () => { if (window._simReposition) window._simReposition(); });
 })();
 
 (async function init() {
