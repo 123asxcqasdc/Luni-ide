@@ -64,6 +64,13 @@
 
     drawRobot(ctx, v, robot);
 
+    // точки датчиков линии (тёмно-красная = над линией, белая = над полом)
+    if (opts.lineDots) for (const d of opts.lineDots) {
+      ctx.beginPath(); ctx.arc(v.X(d.x), v.Y(d.y), 4.5, 0, 7);
+      ctx.fillStyle = d.on ? "#c0392b" : "#ffffff"; ctx.fill();
+      ctx.strokeStyle = "#222"; ctx.lineWidth = 1; ctx.stroke();
+    }
+
     // след (трасса центра)
     if (opts.trail && opts.trail.length > 1) {
       ctx.strokeStyle = "rgba(0,135,138,0.45)"; ctx.lineWidth = 1.5;

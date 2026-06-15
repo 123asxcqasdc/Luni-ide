@@ -168,12 +168,20 @@
   };
 
   Sim.prototype.render = function () {
-    // лучи активных датчиков (передний + боковой) — для наглядности
-    const rays = [];
-    const front = this.robot.localToWorld(75, 0);
-    const fd = this.world.rayDistance(front.x, front.y, this.robot.th, 2000) || 2000;
-    rays.push({ x0: front.x, y0: front.y, x1: front.x + fd * Math.cos(this.robot.th), y1: front.y + fd * Math.sin(this.robot.th) });
-    SimRender.draw(this.ctx, this.canvas, this.world, this.robot, { rays, trail: this.trail });
+    const r = this.robot, w = this.world;
+    // ультразвук: передний (вперёд) и боковой (вправо)
+    const front = r.localToWorld(75, 0);
+    const fd = w.rayDistance(front.x, front.y, r.th, 2000);
+    const sideA = r.th + Math.PI / 2, side = r.localToWorld(0, 60);
+    const sd = w.rayDistance(side.x, side.y, sideA, 2000);
+    const rays = [
+      { x0: front.x, y0: front.y, x1: front.x + (fd || 2000) * Math.cos(r.th), y1: front.y + (fd || 2000) * Math.sin(r.th) },
+      { x0: side.x, y0: side.y, x1: side.x + (sd || 2000) * Math.cos(sideA), y1: side.y + (sd || 2000) * Math.sin(sideA) },
+    ];
+    // датчики линии L/C/R (как в api.js: x=70, смещения -45/0/+45)
+    const lineDots = [-45, 0, 45].map((o) => { const p = r.localToWorld(70, o); return { x: p.x, y: p.y, on: w.floorAt(p.x, p.y) < 1500 }; });
+    this._sensors = { front: fd, side: sd, line: lineDots.map((d) => d.on) };
+    SimRender.draw(this.ctx, this.canvas, this.world, this.robot, { rays, lineDots, trail: this.trail });
     this._hud();
   };
 
@@ -184,12 +192,17 @@
       "t=" + (this.clock / 1000).toFixed(2) + "с  " + (this.running ? "▶" : "❚❚") + "  x" + this.speed,
       "x=" + this.robot.x.toFixed(0) + " y=" + this.robot.y.toFixed(0) + " θ=" + this.robot.headingDeg().toFixed(0) + "°",
     ];
+    const s = this._sensors;
+    if (s) {
+      lines.push("линия " + s.line.map((on) => (on ? "▮" : "▯")).join(" ") + "   (Л Ц П)");
+      lines.push("ультразвук ⬆" + (s.front || 0) + "  ➡" + (s.side || 0) + " мм");
+    }
     if (this.displayText) lines.push("экран: " + this.displayText);
     if (this.robot.collided) lines.push("столкновение!");
-    ctx.fillStyle = "rgba(15,22,32,0.78)";
-    ctx.fillRect(8, 8, 230, 16 * lines.length + 8);
+    ctx.fillStyle = "rgba(15,22,32,0.80)";
+    ctx.fillRect(8, 8, 250, 16 * lines.length + 8);
     ctx.fillStyle = "#cfe8e8";
-    lines.forEach((s, i) => ctx.fillText(s, 14, 13 + i * 16));
+    lines.forEach((str, i) => ctx.fillText(str, 14, 13 + i * 16));
   };
 
   Sim.prototype._emit = function () { if (this.onState) this.onState(this.getState()); };
