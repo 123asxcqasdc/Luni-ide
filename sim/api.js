@@ -9,12 +9,33 @@
 (function (root) {
   "use strict";
   const Robot = root.SimRobot;
+  const Mods = root.SimModules;
   const L = Robot.TRACK_MM;
 
   function build(robot, world, ctx) {
     const clk = ctx.clock || (() => 0);
     const serial = ctx.serial || (() => { });
     const display = ctx.display || (() => { });
+    // текущий функциональный модуль UniDev (меняется «магнитом» на лету)
+    const mod = ctx.module || (() => Mods.byId("none"));
+    // подсказка ученику: обращение к датчику, которого нет на модуле.
+    // Печатаем ОДИН раз на каждый порт, чтобы не залить Serial в loop().
+    const warned = new Set();
+    function missing(what, port, hint) {
+      const key = what + ":" + port;
+      if (warned.has(key)) return;
+      warned.add(key);
+      serial("⚠ " + what + " на порту P" + portName(port) + ": на модуле «" + mod().name +
+             "» такого датчика нет. " + hint + "\n");
+    }
+    const portName = (p) => ({ 12: "1", 13: "2", 14: "3", 15: "4", 17: "5", 16: "6", 32: "7", 23: "8" }[p] || p);
+    // есть ли на модуле светодиодное кольцо (иначе вызовы pixels* молча ничего не делают,
+    // но ученик один раз увидит подсказку — как и с датчиками)
+    function ring() {
+      if (mod().pixels > 0) return true;
+      missing("Светодиодное кольцо", mod().pixelPort || 12, "Поставьте модуль «Светодиодное кольцо».");
+      return false;
+    }
 
     const untilTask = { wait: () => !robot.task };
 
@@ -25,7 +46,7 @@
     }
     function armRotate(power, deg) {
       const p = Math.abs(power), dir = deg >= 0 ? 1 : -1, base = robot.ang, t = Math.abs(deg);
-      robot.setMotors(-dir * p, dir * p);          // dir>0 → th растёт → поворот вправо
+      robot.setMotors(dir * p, -dir * p);          // вправо (dir>0): левое вперёд, правое назад
       robot.setTask(() => Math.abs(robot.ang - base) >= t);
     }
     function* rotateToRad(power, thTarget) {
@@ -38,7 +59,7 @@
     function armArcRadius(power, R, angleDeg) {
       const v = robot.powerToSpeed(Math.abs(power));
       const omega = (angleDeg >= 0 ? 1 : -1) * Math.abs(v) / Math.max(1, R);
-      robot.setSpeed(v - omega * L / 2, v + omega * L / 2);
+      robot.setSpeed(v + omega * L / 2, v - omega * L / 2);   // ω>0 (вправо): левое быстрее
       const base = robot.ang, t = Math.abs(angleDeg);
       robot.setTask(() => Math.abs(robot.ang - base) >= t);
     }
@@ -46,7 +67,7 @@
       const v = robot.powerToSpeed(Math.abs(power)), dist = Math.abs(mm);
       const time = dist / Math.max(1, Math.abs(v));
       const omega = (angleDeg * Math.PI / 180) / Math.max(0.001, time);
-      robot.setSpeed(v - omega * L / 2, v + omega * L / 2);
+      robot.setSpeed(v + omega * L / 2, v - omega * L / 2);   // ω>0 (вправо): левое быстрее
       const base = robot.dist;
       robot.setTask(() => robot.dist - base >= dist);
     }
@@ -92,36 +113,53 @@
         getAbsX: () => robot.x, getAbsY: () => robot.y, getAbsAngle: () => robot.headingDeg(),
         getLeftTicks: () => Math.round(robot.lTicks), getRightTicks: () => Math.round(robot.rTicks),
         printOdometry: () => serial(`x=${robot.x.toFixed(0)} y=${robot.y.toFixed(0)} a=${robot.headingDeg().toFixed(1)}\n`),
-        // периферия
-        blinkLED: () => { }, getBatteryPower: () => 100,
+        // периферия платформы
+        blinkLED: () => { },
+        getBatteryPower: () => (ctx.battery ? ctx.battery() : 100),
         displayPrint: (a, b) => display(b === undefined ? String(a) : a + ": " + b),
         displayClear: () => display(""),
       };
       function shortestDeg(a) { let d = a - robot.headingDeg(); while (d > 180) d -= 360; while (d < -180) d += 360; return d; }
     };
 
-    const lineOff = { 12: -45, 13: 0, 14: 45, 15: 0 };   // боковое смещение датчика линии по порту
+    // Датчики UniDev берутся из ОПИСАНИЯ УСТАНОВЛЕННОГО МОДУЛЯ (sim/modules.js):
+    // порт и положение датчика заданы модулем, а не зашиты в API. Если модуль
+    // такого датчика не несёт — возвращаем «ничего не вижу» и один раз
+    // подсказываем ученику, какой модуль поставить.
     const UniDev = function () {
       return {
         begin: () => { },
         ultraSonic: (trig) => {
-          let lx = 75, ly = 0, da = 0;
-          if (trig === 14) { lx = 0; ly = 60; da = Math.PI / 2; }   // боковой (P3) — вправо
-          const p = robot.localToWorld(lx, ly);
-          return world.rayDistance(p.x, p.y, robot.th + da, 2000);
+          const s = Mods.ultraAt(mod(), trig);
+          if (!s) { missing("Ультразвук", trig, "Поставьте «Модуль лабиринта»."); return 0; }
+          const p = robot.localToWorld(s.x, s.y);
+          return world.rayDistance(p.x, p.y, robot.th + (s.a || 0), 2000);
         },
-        lineSensor: (port) => { const off = (port in lineOff) ? lineOff[port] : 0; const p = robot.localToWorld(70, off); return world.floorAt(p.x, p.y); },
+        lineSensor: (port) => {
+          const s = Mods.lineAt(mod(), port);
+          if (!s) { missing("Датчик линии", port, "Поставьте модуль «Датчики линии»."); return Mods.NO_LINE; }
+          const p = robot.localToWorld(s.x, s.y);
+          return world.floorAt(p.x, p.y);
+        },
         digitalSensor: () => 0, analogSensor: () => 0, getPinMode: () => -1,
         getButtonState: () => 0, waitButton: function* () { yield { sleep: 0 }; },
-        servo: () => { }, servoAttach: () => { }, servoDetach: () => { },
-        pixel: () => { }, pixelsAll: () => { }, pixelsClear: () => { }, pixelsShow: () => { },
-        pixelsBrightness: () => { }, pixelsRainbow: function* (s, d) { yield { sleep: d || 0 }; },
-        pixelsRunning: function* (r, g, b, d) { yield { sleep: d || 0 }; },
-        pixelsBreathing: function* (r, g, b, d) { yield { sleep: d || 0 }; },
-        pixelsFill: function* (r, g, b, d) { yield { sleep: d || 0 }; },
-        pixelsSparkle: function* (r, g, b, d) { yield { sleep: d || 0 }; },
-        pixelsRotating: function* (r, g, b, d) { yield { sleep: d || 0 }; },
-        pixelsSpinner: function* (r, g, b, d) { yield { sleep: d || 0 }; },
+        servo: (port, ang) => {
+          if (!(mod().servos || []).length) { missing("Сервопривод", port, "Поставьте модуль «Сервопривод»."); return; }
+          if (ctx.servo) ctx.servo(port, ang);
+        },
+        servoAttach: () => { }, servoDetach: () => { },
+        // светодиодное кольцо: работает только с модулем «кольцо»
+        pixel: (i, r, g, b) => { if (ring()) ctx.pixel && ctx.pixel(i, r, g, b); },
+        pixelsAll: (r, g, b) => { if (ring()) ctx.pixelsAll && ctx.pixelsAll(r, g, b); },
+        pixelsClear: () => { if (ring()) ctx.pixelsAll && ctx.pixelsAll(0, 0, 0); },
+        pixelsShow: () => { }, pixelsBrightness: () => { },
+        pixelsRainbow: function* (s, d) { if (ring() && ctx.pixelsEffect) ctx.pixelsEffect("rainbow"); yield { sleep: d || 0 }; },
+        pixelsRunning: function* (r, g, b, d) { if (ring() && ctx.pixelsEffect) ctx.pixelsEffect("running", r, g, b); yield { sleep: d || 0 }; },
+        pixelsBreathing: function* (r, g, b, d) { if (ring() && ctx.pixelsEffect) ctx.pixelsEffect("breathing", r, g, b); yield { sleep: d || 0 }; },
+        pixelsFill: function* (r, g, b, d) { if (ring() && ctx.pixelsAll) ctx.pixelsAll(r, g, b); yield { sleep: d || 0 }; },
+        pixelsSparkle: function* (r, g, b, d) { if (ring() && ctx.pixelsEffect) ctx.pixelsEffect("sparkle", r, g, b); yield { sleep: d || 0 }; },
+        pixelsRotating: function* (r, g, b, d) { if (ring() && ctx.pixelsEffect) ctx.pixelsEffect("rotating", r, g, b); yield { sleep: d || 0 }; },
+        pixelsSpinner: function* (r, g, b, d) { if (ring() && ctx.pixelsEffect) ctx.pixelsEffect("spinner", r, g, b); yield { sleep: d || 0 }; },
         setTrafficLight: () => { }, trafficLightSequence: function* () { yield { sleep: 0 }; },
       };
     };

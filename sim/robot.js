@@ -48,7 +48,10 @@
   // интеграция на dt секунд (модель «уницикл»)
   Robot.prototype.step = function (dt) {
     const v = (this.vL + this.vR) / 2;                 // мм/с
-    const omega = (this.vR - this.vL) / TRACK_MM;      // рад/с (CW+ при y вниз)
+    // Ось y направлена ВНИЗ, угол th растёт ПО ЧАСОВОЙ (вправо от робота).
+    // Правое колесо робота смотрит в +y, левое в −y, поэтому «левое быстрее»
+    // (vL > vR) = поворот вправо = рост th. Как на реальном роботе.
+    const omega = (this.vL - this.vR) / TRACK_MM;      // рад/с
     const ds = v * dt;
     const dth = omega * dt;
     // тики энкодеров

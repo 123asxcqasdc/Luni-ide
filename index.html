@@ -1151,6 +1151,45 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .sim-status.err { color: #ff6b6b; }
+
+  /* конфигуратор исполнителя: платформа UniBase + сменный модуль UniDev */
+  .sim-config {
+    flex-shrink: 0; padding: 8px 12px 9px;
+    background: #141d28; border-top: 1px solid #233040;
+  }
+  .sim-config .cfg-row { display: flex; align-items: center; gap: 7px; }
+  .cfg-cap {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .6px;
+    color: #6e8494; margin-right: 3px;
+  }
+  .cfg-base {
+    font-size: 12px; font-weight: 600; color: #cfe1e6;
+    background: #1d2937; border: 1px solid #2c3a49;
+    border-radius: var(--r-sm); padding: 3px 9px; cursor: help;
+  }
+  .cfg-plus { color: #6e8494; font-size: 13px; }
+  .cfg-arrow {
+    width: 24px; height: 26px; flex-shrink: 0;
+    border: 1px solid #2c3a49; border-radius: var(--r-sm);
+    background: #1d2937; color: #cfe1e6; font-size: 11px; cursor: pointer;
+    transition: background .12s var(--ease), border-color .12s var(--ease);
+  }
+  .cfg-arrow:hover { background: #26384a; border-color: var(--accent); }
+  .cfg-mod {
+    flex: 1; min-width: 0; text-align: center;
+    font-size: 12.5px; font-weight: 600; color: #fff;
+    background: var(--accent); border-radius: var(--r-sm);
+    padding: 4px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cfg-dots { display: flex; gap: 4px; flex-shrink: 0; }
+  .cfg-dots i {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #2c3a49; display: block;
+  }
+  .cfg-dots i.on { background: var(--accent); }
+  .cfg-desc {
+    margin-top: 6px; font-size: 11px; color: #8ea1ad; line-height: 1.45;
+  }
   #progressStage.active { display: flex; }
 
   ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -1388,6 +1427,21 @@
     <button class="sim-btn" id="simClose" title="Свернуть">✕</button>
   </div>
   <div class="sim-stage"><canvas id="simCanvas"></canvas></div>
+
+  <!-- конфигурация исполнителя: платформа + сменный модуль (стрелками ◀ ▶) -->
+  <div class="sim-config">
+    <div class="cfg-row">
+      <span class="cfg-cap">Исполнитель</span>
+      <span class="cfg-base" title="Мобильная платформа: моторы N20 150 RPM, энкодеры, дисплей, датчик батареи">UniBase</span>
+      <span class="cfg-plus">+</span>
+      <button class="cfg-arrow" id="simModPrev" title="Предыдущий модуль">◀</button>
+      <span class="cfg-mod" id="simModName">Датчики линии</span>
+      <button class="cfg-arrow" id="simModNext" title="Следующий модуль">▶</button>
+      <span class="cfg-dots" id="simModDots"></span>
+    </div>
+    <div class="cfg-desc" id="simModDesc">Два датчика линии (P1, P2) — движение по линии.</div>
+  </div>
+
   <div class="sim-status" id="simStatusLine">Нажмите «Старт» — скетч из редактора поедет в симуляторе.</div>
 </div>
 
@@ -1413,6 +1467,7 @@
 <script src="/vendor/codemirror/addon/hint/show-hint.min.js"></script>
 <script src="/vendor/codemirror/addon/lint/lint.min.js"></script>
 <!-- модули 2D-симулятора (отдаются сервером из папки sim/) -->
+<script src="/sim/modules.js"></script>
 <script src="/sim/cpp.js"></script>
 <script src="/sim/interp.js"></script>
 <script src="/sim/robot.js"></script>
@@ -3342,6 +3397,35 @@ $("#themeSelect").addEventListener("change", function () {
   });
   $("#simStop").addEventListener("click", () => sim.stop());
   $("#simReset").addEventListener("click", () => sim.reset());
+
+  /* --- конфигурация исполнителя: смена модуля UniDev стрелками ◀ ▶ --- */
+  const MOD_KEY = "uni.simModule";
+  function renderModuleBar() {
+    const list = window.SimModules ? SimModules.MODULES : [];
+    const cur = sim.getModule();
+    $("#simModName").textContent = cur.name;
+    $("#simModDesc").textContent = cur.desc;
+    $("#simModDots").innerHTML = list.map(m => `<i class="${m.id === cur.id ? "on" : ""}"></i>`).join("");
+    localStorage.setItem(MOD_KEY, cur.id);
+  }
+  function switchModule(dir) {
+    sim.stepModule(dir);        // магнитная смена модуля: сброс + новые датчики
+    renderModuleBar();
+    sim.resize();
+  }
+  $("#simModPrev").addEventListener("click", () => switchModule(-1));
+  $("#simModNext").addEventListener("click", () => switchModule(1));
+  // стрелки ←/→ работают, когда фокус не в редакторе (иначе мешали бы набору кода)
+  document.addEventListener("keydown", (e) => {
+    if (!open || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target;
+    if (t && (t.closest(".CodeMirror") || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    if (e.key === "ArrowLeft") { e.preventDefault(); switchModule(-1); }
+    if (e.key === "ArrowRight") { e.preventDefault(); switchModule(1); }
+  });
+  const savedMod = localStorage.getItem(MOD_KEY);
+  if (savedMod) sim.setModule(savedMod);
+  renderModuleBar();
   $("#simScenario").addEventListener("change", (e) => sim.setScenario(e.target.value));
   $("#simSpeed").addEventListener("change", (e) => { sim.speed = parseFloat(e.target.value); });
   window.addEventListener("resize", () => { if (window._simReposition) window._simReposition(); });
