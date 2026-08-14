@@ -3348,7 +3348,13 @@ $("#themeSelect").addEventListener("change", function () {
 /* ---------- 2D-симулятор: выезжающая панель ---------- */
 (function initSim() {
   const panel = $("#simPanel"), toggle = $("#simToggle"), canvas = $("#simCanvas");
-  if (!window.Sim || !canvas) { if (toggle) toggle.style.display = "none"; return; }
+  // модули симулятора не загрузились — убираем и кнопку, и саму панель
+  // (иначе она осталась бы на экране с непроставленной геометрией)
+  if (!window.Sim || !canvas) {
+    if (toggle) toggle.style.display = "none";
+    if (panel) panel.style.display = "none";
+    return;
+  }
   const sim = new Sim(canvas);
   window._sim = sim;
   let open = false;
@@ -3379,8 +3385,11 @@ $("#themeSelect").addEventListener("change", function () {
     toggle.title = v ? "Свернуть симулятор" : "Симулятор (2D)";
     if (v) requestAnimationFrame(() => sim.resize());
   }
-  // панель следует за разделителем при его перетаскивании
-  window._simReposition = () => { if (open) { positionSimPanel(); sim.resize(); } };
+  // Панель следует за разделителем при перетаскивании. Пересчитываем геометрию
+  // и в ЗАКРЫТОМ виде: закрытая панель прячется ровно за консолью, и если её
+  // размеры не совпадают с реальными (ширина панели меняется пользователем),
+  // из-за разделителя торчит тёмная полоска.
+  window._simReposition = () => { positionSimPanel(); if (open) sim.resize(); };
   // клик/таскание по кнопке не должны запускать перетаскивание разделителя
   toggle.addEventListener("mousedown", (e) => e.stopPropagation());
   toggle.addEventListener("dblclick", (e) => e.stopPropagation());
@@ -3426,6 +3435,10 @@ $("#themeSelect").addEventListener("change", function () {
   const savedMod = localStorage.getItem(MOD_KEY);
   if (savedMod) sim.setModule(savedMod);
   renderModuleBar();
+  // Выставляем геометрию СРАЗУ: до первого открытия панель стоит по значениям
+  // из CSS, которые не знают текущей ширины консоли — из-за разделителя
+  // торчала тёмная полоса, пока панель не откроют и не закроют.
+  positionSimPanel();
   $("#simScenario").addEventListener("change", (e) => sim.setScenario(e.target.value));
   $("#simSpeed").addEventListener("change", (e) => { sim.speed = parseFloat(e.target.value); });
   window.addEventListener("resize", () => { if (window._simReposition) window._simReposition(); });
