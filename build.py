@@ -71,11 +71,13 @@ ISS_FILE = os.path.join(HERE, "installer", "UNI-IDE.iss")
 # exe (bootstrap.py) запускает его с диска, что и делает возможными лёгкие
 # payload-обновления без переустановки.
 RES_FILES = ["server.py", "index.html", "icon.ico", "icon.png", "student-README.txt"]
-RES_DIRS  = ["vendor"]
+# vendor — CodeMirror и шрифты; sim — модули 2D-симулятора; image — мнемосхемы
+# конструктора (UniBase/UniDev) для конфигуратора исполнителя.
+RES_DIRS  = ["vendor", "sim", "image"]
 
 # Состав payload-обновления (см. bootstrap.py и автоапдейт в server.py).
 PAYLOAD_FILES = ["server.py", "index.html", "icon.ico", "icon.png", "student-README.txt"]
-PAYLOAD_DIRS  = ["vendor"]
+PAYLOAD_DIRS  = ["vendor", "sim", "image"]
 
 # Переносимый тулчейн (создаётся prepare_bundle.py).
 TOOLCHAIN_FILES = ["arduino-cli.exe"]

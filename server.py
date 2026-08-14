@@ -446,6 +446,12 @@ def sim_files(filename):
     return send_from_directory(os.path.join(BASE, "sim"), filename)
 
 
+@app.route("/image/<path:filename>")
+def image_files(filename):
+    """Мнемосхемы конструктора (UniBase, UniDev) для конфигуратора исполнителя."""
+    return send_from_directory(os.path.join(BASE, "image"), filename)
+
+
 @app.route("/favicon.ico")
 def favicon():
     """Иконка приложения (для вкладки/окна браузера в режиме отката)."""

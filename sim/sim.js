@@ -30,20 +30,41 @@
     this.err = null;
     this.onSerial = null; this.onState = null;
     this._raf = null; this._last = 0; this._loops = 0;
-    // сменный функциональный модуль UniDev (магнитное соединение)
-    this.moduleId = "line2";
+    // Конструктор: платформа UniBase внизу + «этажи» функциональных модулей
+    // UniDev над ней (магнитное соединение). floors[0] — второй этаж.
+    this.floors = ["line2"];
     this._resetRobot();
   }
 
-  // смена модуля «на лету»: как перещёлкнуть магнитный модуль на реальном роботе
-  Sim.prototype.setModule = function (id) {
-    this.moduleId = SimModules.byId(id).id;
+  // --- этажи конструктора (смена «на лету», как перестановка магнитного модуля) ---
+  Sim.prototype.setFloor = function (i, id) {
+    if (i < 0 || i >= this.floors.length) return;
+    this.floors[i] = SimModules.byId(id).id;
     this.reset();                      // датчики сменились — начинаем с чистого листа
   };
-  Sim.prototype.stepModule = function (dir) {
-    this.setModule(SimModules.step(this.moduleId, dir));
+  Sim.prototype.stepFloor = function (i, dir) {
+    if (i < 0 || i >= this.floors.length) return;
+    this.setFloor(i, SimModules.step(this.floors[i], dir));
   };
-  Sim.prototype.getModule = function () { return SimModules.byId(this.moduleId); };
+  Sim.prototype.addFloor = function (id) {
+    this.floors.push(SimModules.byId(id || "none").id);
+    this.reset();
+  };
+  Sim.prototype.removeFloor = function (i) {
+    if (this.floors.length <= 1 || i < 0 || i >= this.floors.length) return;
+    this.floors.splice(i, 1);
+    this.reset();
+  };
+  Sim.prototype.setFloors = function (ids) {
+    this.floors = (ids && ids.length ? ids : ["none"]).map((id) => SimModules.byId(id).id);
+    this.reset();
+  };
+  // объединённая конфигурация всех этажей — её и «видит» скетч
+  Sim.prototype.getModule = function () { return SimModules.combine(this.floors); };
+
+  // совместимость с одноэтажным API
+  Sim.prototype.setModule = function (id) { this.setFloors([id]); };
+  Sim.prototype.stepModule = function (dir) { this.stepFloor(0, dir); };
 
   Sim.prototype.setScenario = function (name) {
     this.running = false; cancelAnimationFrame(this._raf);
@@ -269,7 +290,8 @@
     const m = this.getModule();
     return { running: this.running, phase: this.phase, clock: this.clock, speed: this.speed,
       scenario: this.world.name, collided: this.robot.collided, err: this.err,
-      module: m.id, moduleName: m.name, moduleDesc: m.desc, battery: Math.round(this.battery) };
+      floors: this.floors.slice(), moduleName: m.name, moduleDesc: m.desc,
+      conflicts: m.conflicts || [], battery: Math.round(this.battery) };
   };
 
   root.Sim = Sim;

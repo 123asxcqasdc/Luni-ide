@@ -76,8 +76,51 @@
     },
   ];
 
+  // Мнемосхемы (папка image/): вид сбоку, одинаковая ширина — складываются
+  // в «этажи». Платформа всегда внизу, функциональные модули — над ней.
+  const ART = { base: "/image/UniBase.png", dev: "/image/UniDev.png" };
+
+  // Метки на схеме модуля: что именно на нём стоит (координаты в % картинки).
+  const MARKS = {
+    none:  [],
+    line2: [{ x: 22, y: 74, kind: "line", label: "датчик линии" },
+            { x: 78, y: 74, kind: "line", label: "датчик линии" }],
+    maze:  [{ x: 50, y: 22, kind: "ultra", label: "ультразвук" },
+            { x: 6, y: 30, kind: "ultra", label: "ультразвук" },
+            { x: 94, y: 30, kind: "ultra", label: "ультразвук" }],
+    ring:  [{ x: 50, y: 40, kind: "ring", label: "светодиодное кольцо" }],
+    servo: [{ x: 26, y: 38, kind: "servo", label: "сервопривод" }],
+  };
+
   const byId = (id) => MODULES.find((m) => m.id === id) || MODULES[0];
   const indexOf = (id) => Math.max(0, MODULES.findIndex((m) => m.id === id));
+  const marksFor = (id) => MARKS[id] || [];
+
+  /* Собрать конфигурацию из этажей: датчики всех установленных модулей
+     работают одновременно. Порт физически один, поэтому при совпадении портов
+     на разных этажах сообщаем о конфликте — как и на реальном роботе. */
+  function combine(floorIds) {
+    const line = [], ultra = [], servos = [], conflicts = [];
+    let pixels = 0, pixelPort = null;
+    const used = new Map();                       // порт → что уже занято
+    const take = (port, what, floor) => {
+      if (used.has(port)) conflicts.push({ port, a: used.get(port), b: what + " (этаж " + (floor + 2) + ")" });
+      else used.set(port, what + " (этаж " + (floor + 2) + ")");   // этаж 1 — платформа
+    };
+    (floorIds || []).forEach((id, f) => {
+      const m = byId(id);
+      (m.line || []).forEach((s) => { take(s.port, "датчик линии", f); line.push(s); });
+      (m.ultra || []).forEach((s) => { take(s.port, "ультразвук", f); ultra.push(s); });
+      (m.servos || []).forEach((s) => { take(s.port, "сервопривод", f); servos.push(s); });
+      if (m.pixels > 0) { take(m.pixelPort, "светодиодное кольцо", f); pixels += m.pixels; pixelPort = m.pixelPort; }
+    });
+    const names = (floorIds || []).map((id) => byId(id).name).filter((n) => n !== "Без модуля");
+    return {
+      id: "rig", name: names.length ? names.join(" + ") : "Без модуля",
+      desc: names.length ? "Этажей: " + floorIds.length : "Только платформа UniBase.",
+      line, ultra, servos, pixels, pixelPort, conflicts,
+    };
+  }
 
   // сдвиг по списку стрелками ◀ ▶ (по кругу)
   function step(id, dir) {
@@ -89,5 +132,6 @@
   const lineAt = (mod, port) => (mod.line || []).find((s) => s.port === port) || null;
   const ultraAt = (mod, port) => (mod.ultra || []).find((s) => s.port === port) || null;
 
-  root.SimModules = { MODULES, byId, indexOf, step, lineAt, ultraAt, NO_LINE, PORTS: { P1, P2, P3, P4 } };
+  root.SimModules = { MODULES, ART, byId, indexOf, step, marksFor, combine,
+                      lineAt, ultraAt, NO_LINE, PORTS: { P1, P2, P3, P4 } };
 })(typeof window !== "undefined" ? window : globalThis);
