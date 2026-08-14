@@ -1129,14 +1129,19 @@
   }
   .sim-resizer::before { content: ""; position: absolute; inset: 0 -5px; }  /* зона захвата */
   .sim-resizer:hover, .sim-resizer.dragging { background: var(--accent); }
+  /* На узкой панели (её ширину можно уменьшать до 320px) кнопки не сжимаются
+     и не переносят подпись — вместо этого тулбар переходит на вторую строку. */
   .sim-bar {
     display: flex; align-items: center; gap: 7px;
-    padding: 8px 10px; background: var(--strip);
+    flex-wrap: wrap; row-gap: 6px;
+    padding: 7px 10px; background: var(--strip);
     border-bottom: 1px solid var(--strip-line); flex-shrink: 0;
   }
   .sim-btn {
     font-family: var(--sans); font-size: 12.5px; font-weight: 600;
     height: 28px; padding: 0 11px;
+    flex-shrink: 0; white-space: nowrap;
+    display: inline-flex; align-items: center; justify-content: center;
     border: 1px solid transparent; border-radius: var(--r-sm);
     background: #ffffff; color: var(--text); cursor: pointer;
     transition: background .12s var(--ease), border-color .12s var(--ease), color .12s var(--ease);
@@ -1144,13 +1149,17 @@
   .sim-btn:hover { border-color: var(--accent); color: var(--accent); }
   .sim-btn.run { background: var(--accent); color: #fff; border-color: var(--accent); }
   .sim-btn.run:hover { background: var(--accent-dim); color: #fff; }
-  .sim-bar .sim-lbl { font-size: 11px; color: var(--strip-text); margin-left: 4px; }
+  .sim-bar .sim-lbl { font-size: 11px; color: var(--strip-text); margin-left: 4px; flex-shrink: 0; white-space: nowrap; }
+  /* узкая панель: прячем подписи — селекты говорят сами за себя, тулбар
+     остаётся в одну строку и не отъедает высоту у холста */
+  .sim-panel.narrow .sim-bar .sim-lbl { display: none; }
   .sim-bar select {
     height: 28px; font-size: 12px; border-radius: var(--r-sm);
+    flex-shrink: 0; min-width: 0;
     background: #ffffff; color: var(--text); border: 1px solid transparent; padding: 0 6px; cursor: pointer;
   }
-  .sim-sep { width: 1px; height: 20px; background: var(--strip-line); }
-  .sim-spacer { flex: 1; }
+  .sim-sep { width: 1px; height: 20px; background: var(--strip-line); flex-shrink: 0; }
+  .sim-spacer { flex: 1 1 0; min-width: 0; }
   .sim-stage { flex: 1; min-height: 0; position: relative; background: #ffffff; }
   #simCanvas { width: 100%; height: 100%; display: block; }
   .sim-status {
@@ -1470,13 +1479,13 @@
     <button class="sim-btn" id="simReset" title="Сброс">↺</button>
     <span class="sim-sep"></span>
     <label class="sim-lbl">Сцена</label>
-    <select id="simScenario">
+    <select id="simScenario" title="Сцена: где едет робот">
       <option value="arena">Пусто</option>
       <option value="line">Линия</option>
       <option value="obstacles">Препятствия</option>
     </select>
     <label class="sim-lbl">Скорость</label>
-    <select id="simSpeed">
+    <select id="simSpeed" title="Скорость симуляции">
       <option value="0.5">0.5×</option>
       <option value="1" selected>1×</option>
       <option value="2">2×</option>
@@ -3456,6 +3465,7 @@ $("#themeSelect").addEventListener("change", function () {
   function setSimWidth(w, save) {
     const px = Math.max(simWMin, Math.min(Math.round(w), simWMax()));
     panel.style.setProperty("--sim-w", px + "px");
+    panel.classList.toggle("narrow", px < 560);   // прячем подписи в тулбаре
     if (save) localStorage.setItem(SIMW_KEY, String(px));
     return px;
   }
@@ -3463,7 +3473,9 @@ $("#themeSelect").addEventListener("change", function () {
     const rez = $("#simResizer");
     if (!rez) return;
     const saved = parseInt(localStorage.getItem(SIMW_KEY) || "", 10);
-    if (saved) setSimWidth(saved, false);
+    // без сохранённой ширины панель берёт значение из CSS — всё равно приводим
+    // её к явному px и расставляем класс .narrow под текущий размер
+    setSimWidth(saved || panel.getBoundingClientRect().width, false);
     let raf = 0, right = 0;
     function onMove(e) {
       // правый край панели зафиксирован (он у разделителя) — тянем левый край
@@ -3498,7 +3510,12 @@ $("#themeSelect").addEventListener("change", function () {
   // и в ЗАКРЫТОМ виде: закрытая панель прячется ровно за консолью, и если её
   // размеры не совпадают с реальными (ширина панели меняется пользователем),
   // из-за разделителя торчит тёмная полоска.
-  window._simReposition = () => { positionSimPanel(); if (open) sim.resize(); };
+  window._simReposition = () => {
+    positionSimPanel();
+    // окно изменилось — предел ширины другой, пересчитываем и режим тулбара
+    setSimWidth(panel.getBoundingClientRect().width, false);
+    if (open) sim.resize();
+  };
   // клик/таскание по кнопке не должны запускать перетаскивание разделителя
   toggle.addEventListener("mousedown", (e) => e.stopPropagation());
   toggle.addEventListener("dblclick", (e) => e.stopPropagation());
