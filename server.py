@@ -55,6 +55,10 @@ ICON_PATH = os.path.join(BASE, "icon.ico")
 # Плата зафиксирована: ESP32 Dev Module
 FQBN = "esp32:esp32:esp32"
 
+# Версия приложения — единый источник. build.py читает её отсюда (regex), она же
+# уходит в заголовок окна и в /api/env. Меняем версию правкой ТОЛЬКО этой строки.
+VERSION = "1.3.0"
+
 # Постоянный кэш сборки — ядро и библиотеки компилируются один раз
 BUILD_CACHE = os.path.join(BASE, "build-cache")
 BUILD_PATH  = os.path.join(BASE, "build-tmp")
@@ -312,9 +316,13 @@ def pick_file(open_mode, directory=None, save_filename=None):
 
 # Скрываем консольное окно на Windows для всех дочерних процессов
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+# Пониженный приоритет для фоновых сборок: на Windows дочерние процессы
+# (gcc и т.п.) наследуют этот класс — прогрев не забивает ЦП слабых машин.
+BELOW_NORMAL = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0) if sys.platform == "win32" else 0
 
-def run_cli(args, timeout=900):
-    """Запуск arduino-cli. Возвращает (ok, stdout, stderr)."""
+def run_cli(args, timeout=900, nice=False):
+    """Запуск arduino-cli. Возвращает (ok, stdout, stderr).
+    nice=True — пониженный приоритет (для фонового прогрева)."""
     cmd = [ARDUINO_CLI] + args
     try:
         p = subprocess.run(
@@ -325,7 +333,7 @@ def run_cli(args, timeout=900):
             encoding="utf-8",
             errors="replace",
             env=cli_env(),
-            creationflags=NO_WINDOW,
+            creationflags=NO_WINDOW | (BELOW_NORMAL if nice else 0),
         )
         return p.returncode == 0, p.stdout or "", p.stderr or ""
     except FileNotFoundError:
@@ -574,7 +582,7 @@ def window_new():
     if HAS_WEBVIEW:
         try:
             webview.create_window(
-                "UNI IDE — " + name, url,
+                "UNI IDE " + VERSION + " — " + name, url,
                 width=1280, height=800, min_size=(900, 600), maximized=True,
             )
             opened = True
@@ -614,20 +622,26 @@ def _is_ch340(port_info):
     return (vid in CH340_VIDS) or ("CH340" in desc) or ("CH341" in desc) \
            or ("CH340" in mfr) or ("CH341" in mfr)
 
-@app.route("/api/ports", methods=["GET"])
-def ports():
-    found = {}   # addr -> {addr, ch340, description}
+# Список портов берём из pyserial (list_ports) — это делается В ПРОЦЕССЕ,
+# мгновенно и без подпроцессов. Раньше на КАЖДЫЙ опрос (каждые 2 с) дополнительно
+# запускался `arduino-cli board list`, и это оказалось источником лавины при
+# ПОДКЛЮЧЁННОЙ плате: встроенный в arduino-cli serial-discovery активно опрашивает
+# устройство (открывает порт, дёргает DTR/RTS — попутно ресетит ESP32) и плодит
+# дочерние процессы discovery. Так как каждый такой вызов с платой длится дольше
+# интервала опроса, board list висел непрерывно, забивал ЦП на слабых машинах и
+# вытеснял фоновый прогрев («прекомпиляция бесконечна»). Для нашего сценария
+# (USB-ESP32 на CH340) board list ничего не добавляет — pyserial видит порт и
+# определяет CH340 по VID. Поэтому board list оставлен ТОЛЬКО как запасной путь на
+# случай отсутствия pyserial (в собранном бандле pyserial есть всегда).
+# Плюс кэш с TTL + single-flight — на случай частых опросов.
+_ports_cache = {"t": 0.0, "data": None}
+_ports_lock = threading.Lock()
 
-    if HAS_PYSERIAL:
-        for p in list_ports.comports():
-            found[p.device] = {
-                "addr": p.device,
-                "ch340": _is_ch340(p),
-                "desc": p.description or "",
-            }
 
-    # дополняем данными arduino-cli (может добавить board-matched порты)
-    ok, out, _ = run_cli(["board", "list", "--format", "json"])
+def _ports_via_cli():
+    """Запасной перечень портов через arduino-cli (только если нет pyserial)."""
+    found = {}
+    ok, out, _ = run_cli(["board", "list", "--format", "json"], timeout=15)
     if ok and out.strip():
         try:
             data = json.loads(out)
@@ -639,8 +653,128 @@ def ports():
                     found[addr] = {"addr": addr, "ch340": False, "desc": ""}
         except Exception:
             pass
+    return found
 
-    return jsonify({"ports": list(found.values())})
+
+@app.route("/api/ports", methods=["GET"])
+def ports():
+    now = time.time()
+    if _ports_cache["data"] is not None and now - _ports_cache["t"] < 1.5:
+        return jsonify(_ports_cache["data"])
+    if not _ports_lock.acquire(blocking=False):
+        # другой запрос уже опрашивает — отдаём последнее известное
+        return jsonify(_ports_cache["data"] or {"ports": []})
+    try:
+        found = {}   # addr -> {addr, ch340, description}
+
+        if HAS_PYSERIAL:
+            for p in list_ports.comports():
+                found[p.device] = {
+                    "addr": p.device,
+                    "ch340": _is_ch340(p),
+                    "desc": p.description or "",
+                }
+        else:
+            found = _ports_via_cli()
+
+        result = {"ports": list(found.values())}
+        _ports_cache["data"] = result
+        _ports_cache["t"] = time.time()
+        return jsonify(result)
+    finally:
+        _ports_lock.release()
+
+
+# --------------------------------------------------------------------------- #
+# Прогрев среды компиляции
+# --------------------------------------------------------------------------- #
+# Первая компиляция проекта долгая (~минуту): собирается ядро ESP32 и тяжёлые
+# библиотеки. Эти артефакты живут в build-path проекта и НЕ переносятся между
+# проектами/машинами (ключ кэша зависит от пути). Поэтому при появлении нового
+# проекта (старт, новое окно, «Сохранить как») запускаем ФОНОВУЮ компиляцию,
+# чтобы ядро+библиотеки уже были собраны к первой явной «Проверке» (тогда она
+# ~9 с). Прогрев и реальная компиляция делят блокировку на build-path — реальная
+# компиляция дождётся прогрева, а не запустит второй процесс в том же каталоге.
+_bp_locks = {}
+_bp_guard = threading.Lock()
+_warmed = set()        # build-path с уже собранным ядром
+
+# ОДИН рабочий поток прогрева + очередь «актуален только последний».
+# Раньше каждый новый проект/пример запускал СВОЙ поток прогрева, и клики по
+# меню порождали несколько параллельных полных сборок ядра — на слабых машинах
+# это забивало ЦП на 100%, прогрев «не завершался», а сервер переставал
+# отвечать (не открывались «Новый проект», «Примеры», «Новое окно»).
+_warm_guard = threading.Lock()
+_warm_state = {"active": None, "pending": None, "thread_alive": False}
+
+
+def _bp_lock(bp):
+    with _bp_guard:
+        lk = _bp_locks.get(bp)
+        if lk is None:
+            lk = threading.Lock()
+            _bp_locks[bp] = lk
+        return lk
+
+
+def _bp_is_warm(bp):
+    return bp in _warmed or os.path.exists(os.path.join(bp, "core", "core.a"))
+
+
+def _warm_worker():
+    """Единственный поток прогрева: берёт последний запрошенный проект,
+    компилирует его с пониженным приоритетом, повторяет, пока очередь не пуста."""
+    while True:
+        with _warm_guard:
+            job = _warm_state["pending"]
+            _warm_state["pending"] = None
+            _warm_state["active"] = job[1] if job else None
+            if job is None:
+                _warm_state["thread_alive"] = False
+                return
+        d, bp = job
+        try:
+            with _bp_lock(bp):
+                if not _bp_is_warm(bp):
+                    run_cli(["compile", "--fqbn", FQBN, "--build-path", bp, d], nice=True)
+                if _bp_is_warm(bp):
+                    _warmed.add(bp)
+        except Exception:
+            pass
+
+
+@app.route("/api/warmup", methods=["POST"])
+def warmup():
+    """Запрос фонового прогрева проекта. Возвращает сразу.
+    Прогревы выполняются строго по одному; в очереди хранится только
+    ПОСЛЕДНИЙ запрошенный проект (быстрые переключения не копят сборки)."""
+    ino = resolve_sketch_path((request.json or {}).get("path"))
+    if not ino:
+        return jsonify({"ok": False})
+    d = os.path.dirname(ino)
+    bp = build_path_for_dir(d)
+    if _bp_is_warm(bp):
+        _warmed.add(bp)
+        return jsonify({"ok": True, "warm": True})
+    with _warm_guard:
+        if _warm_state["active"] != bp:
+            _warm_state["pending"] = (d, bp)      # вытесняет предыдущий ожидающий
+        if not _warm_state["thread_alive"]:
+            _warm_state["thread_alive"] = True
+            threading.Thread(target=_warm_worker, daemon=True).start()
+    return jsonify({"ok": True, "warming": True})
+
+
+@app.route("/api/warmup/status", methods=["GET"])
+def warmup_status():
+    ino = resolve_sketch_path(request.args.get("path"))
+    bp = build_path_for_dir(os.path.dirname(ino)) if ino else None
+    warm = bool(bp) and _bp_is_warm(bp)
+    with _warm_guard:
+        warming = bool(bp) and not warm and (
+            _warm_state["active"] == bp or
+            (_warm_state["pending"] is not None and _warm_state["pending"][1] == bp))
+    return jsonify({"ok": True, "warm": warm, "warming": warming})
 
 
 # --------------------------------------------------------------------------- #
@@ -651,9 +785,11 @@ def compile_sketch():
     body = request.json or {}
     ino = save_code(body.get("code", ""), body.get("path"))
     d = os.path.dirname(ino)
-    ok, out, err = run_cli(["compile", "--fqbn", FQBN,
-                            "--build-path", build_path_for_dir(d),
-                            d])
+    bp = build_path_for_dir(d)
+    with _bp_lock(bp):                       # дождётся фонового прогрева, если он идёт
+        ok, out, err = run_cli(["compile", "--fqbn", FQBN, "--build-path", bp, d])
+        if ok:
+            _warmed.add(bp)
     return jsonify({"ok": ok, "log": (out + err).strip()})
 
 
@@ -672,11 +808,13 @@ def upload_sketch():
     if monitor_was_on:
         monitor.stop()
 
-    ok, out, err = run_cli(
-        ["compile", "--upload", "-p", port, "--fqbn", FQBN,
-         "--build-path", build_path_for_dir(d),
-         d]
-    )
+    bp = build_path_for_dir(d)
+    with _bp_lock(bp):
+        ok, out, err = run_cli(
+            ["compile", "--upload", "-p", port, "--fqbn", FQBN, "--build-path", bp, d]
+        )
+        if ok:
+            _warmed.add(bp)
 
     if monitor_was_on:
         try:
@@ -687,8 +825,69 @@ def upload_sketch():
     return jsonify({"ok": ok, "log": (out + err).strip()})
 
 
-def _stream_cli(args, on_stop=None):
-    """Запускает arduino-cli и стримит вывод построчно как SSE."""
+# --------------------------------------------------------------------------- #
+# Прерывание компиляции/прошивки
+# --------------------------------------------------------------------------- #
+# Раньше запущенную сборку нельзя было остановить: даже если фронтенд закрывал
+# SSE-поток, процесс arduino-cli (и его дети — gcc/esptool) продолжал молотить
+# до конца. Особенно мешало, когда в коде ошибка и хочется сразу прервать.
+# Теперь активные процессы регистрируются по build-path, а /api/compile/stop
+# убивает всё дерево процессов и помечает сборку на отмену.
+_procs = {}                       # bp -> {"proc": Popen}
+_inflight = set()                 # bp, для которых сейчас идёт (или ждёт прогрева) сборка
+_cancelled = set()                # bp, для которых запрошена отмена
+_procs_guard = threading.Lock()
+
+
+def _kill_tree(proc):
+    """Убивает arduino-cli вместе с дочерними процессами (gcc/esptool).
+    proc.terminate() снял бы только сам arduino-cli, а тяжёлые дети остались бы
+    молотить ЦП — поэтому на Windows валим всё дерево через taskkill /T."""
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                           capture_output=True, creationflags=NO_WINDOW)
+        else:
+            proc.terminate()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        pass
+
+
+def cancel_build(bp):
+    """Отменяет сборку для build-path: помечает на отмену и убивает её процесс.
+    Возвращает False, если для bp ничего не выполняется (чтобы не оставить
+    «висящий» флаг отмены, который прервал бы следующую сборку)."""
+    with _procs_guard:
+        if bp not in _inflight:
+            return False
+        _cancelled.add(bp)
+        ent = _procs.get(bp)
+    if ent:
+        _kill_tree(ent["proc"])
+    return True
+
+
+def cancel_all():
+    """Отменяет все текущие сборки (когда путь не удалось определить)."""
+    with _procs_guard:
+        targets = list(_inflight)
+        for bp in targets:
+            _cancelled.add(bp)
+        procs = [e["proc"] for e in _procs.values()]
+    for p in procs:
+        _kill_tree(p)
+    return bool(targets)
+
+
+def _stream_cli(args, bp=None, on_stop=None):
+    """Запускает arduino-cli и стримит вывод построчно как SSE.
+    Если задан bp — регистрирует процесс, чтобы /api/compile/stop мог его убить."""
     import json as _json
 
     cmd = [ARDUINO_CLI] + args
@@ -707,27 +906,66 @@ def _stream_cli(args, on_stop=None):
         yield "data: " + _json.dumps({"line": "arduino-cli не найден.", "done": True, "ok": False}) + "\n\n"
         return
 
-    for line in proc.stdout:
-        line = line.rstrip("\n\r")
-        if line:
-            yield "data: " + _json.dumps({"line": line}) + "\n\n"
+    if bp is not None:
+        with _procs_guard:
+            _procs[bp] = {"proc": proc}
+    try:
+        for line in proc.stdout:
+            line = line.rstrip("\n\r")
+            if line:
+                yield "data: " + _json.dumps({"line": line}) + "\n\n"
+        proc.wait()
+    finally:
+        if bp is not None:
+            with _procs_guard:
+                if _procs.get(bp, {}).get("proc") is proc:
+                    _procs.pop(bp, None)
 
-    proc.wait()
-    ok = proc.returncode == 0
-    yield "data: " + _json.dumps({"done": True, "ok": ok}) + "\n\n"
+    cancelled = bp is not None and bp in _cancelled
+    ok = (proc.returncode == 0) and not cancelled
+    yield "data: " + _json.dumps({"done": True, "ok": ok, "cancelled": cancelled}) + "\n\n"
 
     if on_stop:
         on_stop()
+
+
+def _stream_cli_locked(bp, args, on_stop=None):
+    """_stream_cli под блокировкой build-path: если идёт фоновый прогрев,
+    стрим дождётся его (фронт в это время крутит плавный прогресс-бар).
+    Помечает bp как in-flight и обрабатывает отмену, пришедшую во время ожидания."""
+    import json as _json
+    with _procs_guard:
+        _inflight.add(bp)
+    lk = _bp_lock(bp)
+    lk.acquire()
+    try:
+        with _procs_guard:
+            pre_cancelled = bp in _cancelled
+        if pre_cancelled:
+            # «Стоп» нажали, пока ждали прогрев/блокировку — тяжёлую сборку не запускаем
+            yield "data: " + _json.dumps({"done": True, "ok": False, "cancelled": True}) + "\n\n"
+            if on_stop:
+                on_stop()
+            return
+        for chunk in _stream_cli(args, bp=bp, on_stop=on_stop):
+            yield chunk
+        if _bp_is_warm(bp):
+            _warmed.add(bp)
+    finally:
+        lk.release()
+        with _procs_guard:
+            _inflight.discard(bp)
+            _cancelled.discard(bp)
 
 
 @app.route("/api/compile/stream", methods=["GET"])
 def compile_stream():
     ino = resolve_sketch_path(request.args.get("path")) or ensure_default_sketch()
     d = os.path.dirname(ino)
+    bp = build_path_for_dir(d)
     return Response(
-        stream_with_context(_stream_cli(["compile", "--fqbn", FQBN,
-                                          "--build-path", build_path_for_dir(d),
-                                          d])),
+        stream_with_context(_stream_cli_locked(bp,
+            ["compile", "--fqbn", FQBN, "--build-path", bp, d])),
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -744,6 +982,7 @@ def upload_stream():
 
     ino = resolve_sketch_path(request.args.get("path")) or ensure_default_sketch()
     d = os.path.dirname(ino)
+    bp = build_path_for_dir(d)
 
     monitor_was_on = monitor.is_on(port)
     monitor_baud = monitor.baud
@@ -758,15 +997,27 @@ def upload_stream():
                 pass
 
     return Response(
-        stream_with_context(_stream_cli(
-            ["compile", "--upload", "-p", port, "--fqbn", FQBN,
-             "--build-path", build_path_for_dir(d),
-             d],
+        stream_with_context(_stream_cli_locked(bp,
+            ["compile", "--upload", "-p", port, "--fqbn", FQBN, "--build-path", bp, d],
             on_stop=on_done,
         )),
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.route("/api/compile/stop", methods=["POST"])
+def compile_stop():
+    """Прерывает текущую компиляцию/прошивку проекта: убивает дерево процессов
+    arduino-cli (вместе с gcc/esptool) и помечает сборку на отмену. Работает и
+    для «Проверить», и для «Загрузить» (общий build-path проекта)."""
+    ino = resolve_sketch_path((request.json or {}).get("path"))
+    if ino:
+        bp = build_path_for_dir(os.path.dirname(ino))
+        stopped = cancel_build(bp)
+    else:
+        stopped = cancel_all()
+    return jsonify({"ok": True, "stopped": stopped})
 
 
 # --------------------------------------------------------------------------- #
@@ -1241,6 +1492,239 @@ def mon_send():
 
 
 # --------------------------------------------------------------------------- #
+# Автообновление (payload из GitHub Releases)
+# --------------------------------------------------------------------------- #
+# Схема: exe — тонкий загрузчик (bootstrap.py), а логика IDE (server.py,
+# index.html, vendor) — обычные файлы рядом. Релиз публикует лёгкий
+# payload-<ver>.zip (+ .sha256). Фоновый поток раз в несколько часов смотрит
+# тег releases/latest (по редиректу, без API-лимитов GitHub), скачивает payload,
+# сверяет sha256 и раскладывает в updates/pending. Применяет его ЗАГРУЗЧИК при
+# следующем запуске (с бэкапом и автооткатом). Если payload требует более
+# новой полной установки (min_base > базовой версии) — обновление не стейджится,
+# а UI предлагает скачать полный установщик.
+import zipfile
+import urllib.request
+import urllib.error
+
+GH_OWNER, GH_REPO = "tchelex", "uni-ide"
+GH_LATEST_URL   = f"https://github.com/{GH_OWNER}/{GH_REPO}/releases/latest"
+GH_DOWNLOAD_URL = f"https://github.com/{GH_OWNER}/{GH_REPO}/releases/download"
+UPDATES_DIR   = os.path.join(BASE, "updates")
+UPDATE_PERIOD = 4 * 3600          # сек между фоновыми проверками
+UPDATE_DELAY  = 30                # сек после старта до первой проверки
+
+
+def _read_base_version():
+    """Версия ПОЛНОЙ установки (пишет build.py в бандл). В dev — VERSION."""
+    try:
+        with open(os.path.join(BASE, "base-version.txt"), encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return VERSION
+
+BASE_VERSION = _read_base_version()
+
+
+def parse_ver(s):
+    """'v1.2.10' -> (1, 2, 10); мусор -> None."""
+    s = (s or "").strip().lstrip("vV")
+    if not s:
+        return None
+    try:
+        return tuple(int(x) for x in s.split("."))
+    except ValueError:
+        return None
+
+
+def ver_newer(a, b):
+    """True, если версия a новее b (строки)."""
+    pa, pb = parse_ver(a), parse_ver(b)
+    return bool(pa and pb) and pa > pb
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+
+
+def fetch_latest_version(timeout=6):
+    """Читает тег последнего релиза из редиректа /releases/latest.
+    Возвращает строку версии ('1.2.3') или None (нет сети и т.п.)."""
+    opener = urllib.request.build_opener(_NoRedirect)
+    try:
+        opener.open(GH_LATEST_URL, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        loc = e.headers.get("Location", "") if e.code in (301, 302, 303, 307, 308) else ""
+        m = re.search(r"/tag/v?([0-9][0-9.]*)$", loc)
+        return m.group(1) if m else None
+    except Exception:
+        return None
+    return None                     # редиректа не было — формат неожиданный
+
+
+def _download(url, dst, timeout=30):
+    """Скачивает url в файл dst (поток, без лишней памяти)."""
+    req = urllib.request.Request(url, headers={"User-Agent": "UNI-IDE-updater"})
+    with urllib.request.urlopen(req, timeout=timeout) as r, open(dst, "wb") as f:
+        shutil.copyfileobj(r, f, length=256 * 1024)
+
+
+def _sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(256 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+# Текущее состояние автообновления (для /api/update/status)
+_upd_lock = threading.Lock()
+_upd_state = {"checking": False, "staged": None, "need_full": None, "worker": False}
+
+
+def _detect_staged():
+    """Если updates/pending уже подготовлен прошлым сеансом — узнать версию."""
+    try:
+        with open(os.path.join(UPDATES_DIR, "pending", "update.json"),
+                  encoding="utf-8") as f:
+            v = (json.load(f) or {}).get("version")
+        if v:
+            with _upd_lock:
+                _upd_state["staged"] = v
+    except Exception:
+        pass
+
+
+def stage_payload_zip(zip_path, expect_version=None):
+    """Распаковывает payload-zip в updates/pending (через временную папку).
+    Возвращает (ok, что_случилось): 'staged' | 'need_full' | причина ошибки."""
+    tmp = os.path.join(UPDATES_DIR, "pending-tmp")
+    pending = os.path.join(UPDATES_DIR, "pending")
+    shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(tmp, exist_ok=True)
+    try:
+        with zipfile.ZipFile(zip_path) as z:
+            names = z.namelist()
+            # защита от zip-slip: только относительные пути внутри архива
+            for n in names:
+                p = os.path.normpath(n)
+                if p.startswith("..") or os.path.isabs(p):
+                    return False, "подозрительный путь в архиве"
+            z.extractall(tmp)
+        meta_path = os.path.join(tmp, "update.json")
+        with open(meta_path, encoding="utf-8") as f:
+            meta = json.load(f) or {}
+        ver = meta.get("version") or ""
+        min_base = meta.get("min_base") or "0.0.0"
+        if expect_version and ver != expect_version:
+            return False, "версия в архиве не совпадает"
+        if ver_newer(min_base, BASE_VERSION):
+            # payload требует более новый загрузчик — нужен полный установщик
+            shutil.rmtree(tmp, ignore_errors=True)
+            with _upd_lock:
+                _upd_state["need_full"] = ver
+                _upd_state["staged"] = None
+            return True, "need_full"
+        shutil.rmtree(pending, ignore_errors=True)
+        os.replace(tmp, pending)
+        with _upd_lock:
+            _upd_state["staged"] = ver
+            _upd_state["need_full"] = None
+        return True, "staged"
+    except Exception as e:  # noqa: BLE001
+        shutil.rmtree(tmp, ignore_errors=True)
+        return False, str(e)
+
+
+def check_and_stage_update():
+    """Одна итерация: узнать последнюю версию, при необходимости скачать
+    и подготовить payload. Все ошибки тихие (офлайн — норма для школ)."""
+    with _upd_lock:
+        if _upd_state["checking"]:
+            return
+        _upd_state["checking"] = True
+    try:
+        latest = fetch_latest_version()
+        if not latest or not ver_newer(latest, VERSION):
+            return
+        with _upd_lock:
+            if _upd_state["staged"] == latest or _upd_state["need_full"] == latest:
+                return                      # уже подготовлено/решено
+        os.makedirs(UPDATES_DIR, exist_ok=True)
+        name = f"payload-{latest}.zip"
+        url_zip = f"{GH_DOWNLOAD_URL}/v{latest}/{name}"
+        url_sha = url_zip + ".sha256"
+        zip_tmp = os.path.join(UPDATES_DIR, name + ".part")
+        try:
+            _download(url_zip, zip_tmp)
+            sha_tmp = zip_tmp + ".sha"
+            _download(url_sha, sha_tmp, timeout=10)
+            with open(sha_tmp, encoding="utf-8", errors="ignore") as f:
+                want = (f.read().split() or [""])[0].strip().lower()
+            os.remove(sha_tmp)
+            if not want or _sha256_file(zip_tmp) != want:
+                return                      # битая загрузка — попробуем в следующий раз
+            stage_payload_zip(zip_tmp, expect_version=latest)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                # у релиза нет payload (например, только полный установщик)
+                with _upd_lock:
+                    _upd_state["need_full"] = latest
+                    _upd_state["staged"] = None
+        finally:
+            try:
+                os.remove(zip_tmp)
+            except OSError:
+                pass
+    except Exception:
+        pass
+    finally:
+        with _upd_lock:
+            _upd_state["checking"] = False
+
+
+def _update_worker():
+    time.sleep(UPDATE_DELAY)
+    while True:
+        check_and_stage_update()
+        time.sleep(UPDATE_PERIOD)
+
+
+def start_update_worker():
+    """Фоновый автоапдейт: в собранном приложении всегда; в dev — только
+    по явному флагу UNI_UPDATE=1 (чтобы не качать релизы на машине разработки)."""
+    if not (IS_FROZEN or os.environ.get("UNI_UPDATE") == "1"):
+        return
+    with _upd_lock:
+        if _upd_state["worker"]:
+            return
+        _upd_state["worker"] = True
+    _detect_staged()
+    threading.Thread(target=_update_worker, daemon=True).start()
+
+
+@app.route("/api/update/status", methods=["GET"])
+def update_status():
+    with _upd_lock:
+        st = dict(_upd_state)
+    return jsonify({
+        "ok": True,
+        "current": VERSION,
+        "staged": st["staged"],          # версия, готовая к применению при перезапуске
+        "need_full": st["need_full"],    # версия, требующая полного установщика
+        "checking": st["checking"],
+        "release_url": GH_LATEST_URL,
+    })
+
+
+@app.route("/api/update/check", methods=["POST"])
+def update_check_now():
+    """Форсированная проверка (для отладки/меню)."""
+    threading.Thread(target=check_and_stage_update, daemon=True).start()
+    return jsonify({"ok": True})
+
+
+# --------------------------------------------------------------------------- #
 # Проверка окружения
 # --------------------------------------------------------------------------- #
 @app.route("/api/env", methods=["GET"])
@@ -1260,6 +1744,7 @@ def env():
         "pyserial": HAS_PYSERIAL,
         "portable": IS_PORTABLE,
         "version": ver,
+        "app_version": VERSION,
         "fqbn": FQBN,
     })
 
@@ -1302,13 +1787,14 @@ if __name__ == "__main__":
             pass
 
     ensure_default_sketch()
+    start_update_worker()      # фоновая проверка обновлений (тихая, офлайн-безопасная)
 
     if HAS_WEBVIEW:
         # Flask в фоновом потоке, pywebview держит главный поток
         t = threading.Thread(target=start_flask, daemon=True)
         t.start()
         webview.create_window(
-            "UNI IDE",
+            "UNI IDE " + VERSION,
             "http://127.0.0.1:5000",
             width=1280,
             height=800,

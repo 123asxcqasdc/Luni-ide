@@ -70,8 +70,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
 
+[InstallDelete]
+; Полный установщик всегда «свежее» уже скачанного фонового обновления:
+; сбрасываем отложенный payload и его бэкап, иначе загрузчик при первом запуске
+; применил бы старую версию поверх только что установленной.
+Type: filesandordirs; Name: "{app}\updates"
+
 [Files]
-; Весь бандл (UNI-IDE.exe, _internal, index.html, vendor, arduino-cli, arduino-data, ...)
+; Весь бандл (UNI-IDE.exe, _internal, server.py, index.html, vendor, arduino-cli, arduino-data, ...)
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 ; Драйвер CH340: INF-пакет для тихой установки через pnputil (галочка в конце)
 ; + CH341SER.EXE как запасной вариант для ручной установки.
@@ -87,7 +93,12 @@ Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilen
 ; Галочка на финальной странице (по умолчанию ВЫКЛ): установка драйвера CH340
 ; ЧЕРЕЗ КОМАНДНУЮ СТРОКУ (pnputil), без GUI-инсталлятора WCH. Окно UAC
 ; появится только на эту команду; ученику не нужно ничего нажимать в мастере.
-Filename: "{sys}\pnputil.exe"; Parameters: "/add-driver ""{app}\drivers\CH341SER\CH341SER.INF"" /install"; WorkingDir: "{app}\drivers\CH341SER"; Description: "Установить драйвер CH340 (нужен, чтобы ПК увидел плату ESP32)"; Flags: postinstall skipifsilent unchecked shellexec waituntilterminated; Verb: runas
+; ВАЖНО: {sysnative}, не {sys} — сам setup.exe 32-битный, и обращение к {sys}
+; (System32) для 32-битного процесса на 64-битной Windows прозрачно уходит в
+; SysWOW64, где pnputil.exe НЕТ (он есть только в настоящем System32) — отсюда
+; «не удаётся найти указанный файл». {sysnative} указывает на настоящий
+; System32 в обход этого перенаправления.
+Filename: "{sysnative}\pnputil.exe"; Parameters: "/add-driver ""{app}\drivers\CH341SER\CH341SER.INF"" /install"; WorkingDir: "{app}\drivers\CH341SER"; Description: "Установить драйвер CH340 (нужен, чтобы ПК увидел плату ESP32)"; Flags: postinstall skipifsilent unchecked shellexec waituntilterminated; Verb: runas
 ; Галочка «Запустить UNI IDE» (по умолчанию ВКЛ).
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 
@@ -97,4 +108,5 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 Type: filesandordirs; Name: "{app}\build-tmp"
 Type: filesandordirs; Name: "{app}\build-cache"
 Type: filesandordirs; Name: "{app}\arduino-downloads"
+Type: filesandordirs; Name: "{app}\updates"
 Type: files; Name: "{app}\uni-ide-log.txt"
