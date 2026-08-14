@@ -279,9 +279,13 @@
     lines.push("батарея: " + Math.round(this.battery) + "%");
     if (this.displayText) lines.push("экран: " + this.displayText);
     if (this.robot.collided) lines.push("столкновение!");
-    ctx.fillStyle = "rgba(15,22,32,0.80)";
-    ctx.fillRect(8, 8, 260, 16 * lines.length + 8);
-    ctx.fillStyle = "#cfe8e8";
+    // плашка HUD в светлой теме: белая подложка с мягкой рамкой
+    const h = 16 * lines.length + 8;
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.fillRect(8, 8, 260, h);
+    ctx.strokeStyle = "#cfe3e3"; ctx.lineWidth = 1;
+    ctx.strokeRect(8.5, 8.5, 259, h - 1);
+    ctx.fillStyle = "#2c4a4b";
     lines.forEach((str, i) => ctx.fillText(str, 14, 13 + i * 16));
   };
 

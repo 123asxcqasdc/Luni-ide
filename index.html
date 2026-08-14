@@ -1110,70 +1110,79 @@
   .sim-panel {
     position: fixed;
     top: 96px; right: 426px; height: 60vh;
-    width: 33vw; min-width: 320px; max-width: 720px;
-    background: #0f1620;
-    border: 1px solid var(--accent-dim); border-right: none;
-    box-shadow: -14px 0 34px rgba(0,0,0,0.32);
+    width: var(--sim-w, 33vw); min-width: 320px; max-width: 90vw;
+    background: #ffffff;
+    border: 1px solid var(--strip-line); border-right: none;
+    box-shadow: -14px 0 30px rgba(0,0,0,0.10);
     display: flex; flex-direction: column;
     transform: translateX(100%);
     transition: transform .28s var(--ease);
     z-index: 4;
   }
   .sim-panel.open { transform: translateX(0); }
+  /* левый край панели — «ручка» изменения ширины */
+  .sim-resizer {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 1px;
+    background: var(--strip-line);
+    cursor: col-resize; z-index: 3;
+    transition: background .12s var(--ease);
+  }
+  .sim-resizer::before { content: ""; position: absolute; inset: 0 -5px; }  /* зона захвата */
+  .sim-resizer:hover, .sim-resizer.dragging { background: var(--accent); }
   .sim-bar {
     display: flex; align-items: center; gap: 7px;
-    padding: 8px 10px; background: #141d28;
-    border-bottom: 1px solid #233040; flex-shrink: 0;
+    padding: 8px 10px; background: var(--strip);
+    border-bottom: 1px solid var(--strip-line); flex-shrink: 0;
   }
   .sim-btn {
     font-family: var(--sans); font-size: 12.5px; font-weight: 600;
     height: 28px; padding: 0 11px;
-    border: 1px solid #2c3a49; border-radius: var(--r-sm);
-    background: #1d2937; color: #cfe1e6; cursor: pointer;
-    transition: background .12s var(--ease), border-color .12s var(--ease);
+    border: 1px solid transparent; border-radius: var(--r-sm);
+    background: #ffffff; color: var(--text); cursor: pointer;
+    transition: background .12s var(--ease), border-color .12s var(--ease), color .12s var(--ease);
   }
-  .sim-btn:hover { background: #26384a; border-color: var(--accent); }
+  .sim-btn:hover { border-color: var(--accent); color: var(--accent); }
   .sim-btn.run { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .sim-btn.run:hover { background: var(--accent-dim); }
-  .sim-bar .sim-lbl { font-size: 11px; color: #8ea1ad; margin-left: 4px; }
+  .sim-btn.run:hover { background: var(--accent-dim); color: #fff; }
+  .sim-bar .sim-lbl { font-size: 11px; color: var(--strip-text); margin-left: 4px; }
   .sim-bar select {
     height: 28px; font-size: 12px; border-radius: var(--r-sm);
-    background: #1d2937; color: #cfe1e6; border: 1px solid #2c3a49; padding: 0 6px; cursor: pointer;
+    background: #ffffff; color: var(--text); border: 1px solid transparent; padding: 0 6px; cursor: pointer;
   }
-  .sim-sep { width: 1px; height: 20px; background: #2c3a49; }
+  .sim-sep { width: 1px; height: 20px; background: var(--strip-line); }
   .sim-spacer { flex: 1; }
-  .sim-stage { flex: 1; min-height: 0; position: relative; }
+  .sim-stage { flex: 1; min-height: 0; position: relative; background: #ffffff; }
   #simCanvas { width: 100%; height: 100%; display: block; }
   .sim-status {
     flex-shrink: 0; padding: 5px 12px; font-size: 11.5px;
-    font-family: var(--mono); color: #8ea1ad;
-    background: #141d28; border-top: 1px solid #233040;
+    font-family: var(--mono); color: var(--strip-text);
+    background: var(--strip); border-top: 1px solid var(--strip-line);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .sim-status.err { color: #ff6b6b; }
+  .sim-status.err { color: var(--err); }
 
   /* ---- конструктор исполнителя: этажи UniBase + UniDev (мнемосхемы) ---- */
   .sim-config {
     flex-shrink: 0; padding: 8px 12px 10px;
-    background: #141d28; border-top: 1px solid #233040;
+    background: var(--strip); border-top: 1px solid var(--strip-line);
   }
   .cfg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .cfg-cap {
-    font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: #6e8494;
+    font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--strip-text);
   }
   .cfg-sum {
-    flex: 1; min-width: 0; font-size: 11.5px; color: #cfe1e6;
+    flex: 1; min-width: 0; font-size: 11.5px; color: var(--accent-dim); font-weight: 600;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .cfg-add {
     flex-shrink: 0; font-family: var(--sans); font-size: 11.5px; font-weight: 600;
     height: 24px; padding: 0 9px;
-    border: 1px solid #2c3a49; border-radius: var(--r-sm);
-    background: #1d2937; color: #cfe1e6; cursor: pointer;
-    transition: background .12s var(--ease), border-color .12s var(--ease);
+    border: 1px solid transparent; border-radius: var(--r-sm);
+    background: #ffffff; color: var(--strip-text); cursor: pointer;
+    transition: border-color .12s var(--ease), color .12s var(--ease);
   }
-  .cfg-add:hover { background: #26384a; border-color: var(--accent); }
-  .cfg-add:disabled { opacity: .4; cursor: not-allowed; }
+  .cfg-add:hover { border-color: var(--accent); color: var(--accent); }
+  .cfg-add:disabled { opacity: .45; cursor: not-allowed; }
 
   /* стопка этажей: платформа снизу, модули над ней */
   .rig {
@@ -1212,33 +1221,33 @@
     border-radius: 0 0 var(--r-sm) 0; padding: 3px 6px;
     white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
   }
-  .rig-row.base .rig-chip { background: rgba(45,62,80,.92); }
+  .rig-row.base .rig-chip { background: rgba(67,121,123,.92); }
   /* метки: что установлено на модуле */
   .rig-mark {
     position: absolute; width: 9px; height: 9px; border-radius: 50%;
     transform: translate(-50%, -50%);
-    box-shadow: 0 0 0 2px rgba(20,29,40,.85);
+    box-shadow: 0 0 0 2px rgba(255,255,255,.9);
     animation: rigpulse 1.8s ease-in-out infinite;
   }
-  .rig-mark.line  { background: #ff6b6b; }
-  .rig-mark.ultra { background: #4dd0e1; }
-  .rig-mark.ring  { background: #ffd35c; }
-  .rig-mark.servo { background: #b39ddb; }
+  .rig-mark.line  { background: #e24b4a; }
+  .rig-mark.ultra { background: #1e9ec7; }
+  .rig-mark.ring  { background: #e0a012; }
+  .rig-mark.servo { background: #7f77dd; }
   @keyframes rigpulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
 
   .rig-arrow, .rig-x {
     flex-shrink: 0; width: 22px; height: 24px;
-    border: 1px solid #2c3a49; border-radius: var(--r-sm);
-    background: #1d2937; color: #cfe1e6; font-size: 10px; cursor: pointer;
+    border: 1px solid transparent; border-radius: var(--r-sm);
+    background: #ffffff; color: var(--strip-text); font-size: 10px; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
-    transition: background .12s var(--ease), border-color .12s var(--ease), color .12s var(--ease);
+    transition: border-color .12s var(--ease), color .12s var(--ease);
   }
-  .rig-arrow:hover { background: #26384a; border-color: var(--accent); }
-  .rig-x:hover { background: #3a2430; border-color: var(--err); color: #ff8f8f; }
+  .rig-arrow:hover { border-color: var(--accent); color: var(--accent); }
+  .rig-x:hover { border-color: var(--err); color: var(--err); }
   .rig-spacer { flex-shrink: 0; width: 22px; }
 
-  .cfg-desc { margin-top: 6px; font-size: 11px; color: #8ea1ad; line-height: 1.45; }
-  .cfg-desc .warn { color: #ffd35c; }
+  .cfg-desc { margin-top: 6px; font-size: 11px; color: var(--strip-text); line-height: 1.45; }
+  .cfg-desc .warn { color: #a3600d; font-weight: 600; }
   #progressStage.active { display: flex; }
 
   ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -1454,6 +1463,7 @@
 
 <!-- ===== 2D-симулятор: выезжающая панель (кнопка-открывашка — в разделителе) ===== -->
 <div class="sim-panel" id="simPanel">
+  <div class="sim-resizer" id="simResizer" title="Потяните, чтобы изменить ширину симулятора (двойной клик — сброс)"></div>
   <div class="sim-bar">
     <button class="sim-btn run" id="simRun" title="Запустить скетч в симуляторе">▶ Старт</button>
     <button class="sim-btn" id="simStop" title="Стоп">❚❚</button>
@@ -3431,6 +3441,59 @@ $("#themeSelect").addEventListener("change", function () {
     toggle.title = v ? "Свернуть симулятор" : "Симулятор (2D)";
     if (v) requestAnimationFrame(() => sim.resize());
   }
+  /* --- ширина панели: тянем за ЛЕВЫЙ край (правый прижат к разделителю) --- */
+  const SIMW_KEY = "uni.simWidth";
+  const simWMin = 320;
+  // Панель растёт влево от разделителя. Ограничиваем так, чтобы она не уезжала
+  // за левый край экрана и от редактора оставалась видимая полоса.
+  const simWMax = () => {
+    const side = document.querySelector(".side");
+    const anchor = side ? side.getBoundingClientRect().left : window.innerWidth;
+    return Math.max(simWMin, Math.round(anchor - 160));
+  };
+  // Ширина применяется СИНХРОННО (панель идёт за курсором без задержки),
+  // а перерисовка холста откладывается на кадр — она заметно дороже.
+  function setSimWidth(w, save) {
+    const px = Math.max(simWMin, Math.min(Math.round(w), simWMax()));
+    panel.style.setProperty("--sim-w", px + "px");
+    if (save) localStorage.setItem(SIMW_KEY, String(px));
+    return px;
+  }
+  (function initSimResizer() {
+    const rez = $("#simResizer");
+    if (!rez) return;
+    const saved = parseInt(localStorage.getItem(SIMW_KEY) || "", 10);
+    if (saved) setSimWidth(saved, false);
+    let raf = 0, right = 0;
+    function onMove(e) {
+      // правый край панели зафиксирован (он у разделителя) — тянем левый край
+      setSimWidth(right - e.clientX, false);
+      if (open && !raf) raf = requestAnimationFrame(() => { raf = 0; sim.resize(); });
+      e.preventDefault();
+    }
+    function onUp() {
+      rez.classList.remove("dragging");
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      localStorage.setItem(SIMW_KEY, String(Math.round(panel.getBoundingClientRect().width)));
+      sim.resize();
+    }
+    rez.addEventListener("mousedown", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      right = panel.getBoundingClientRect().right;   // фиксируем правый край на время перетаскивания
+      rez.classList.add("dragging");
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+    rez.addEventListener("dblclick", (e) => {   // сброс на треть экрана
+      e.stopPropagation();
+      setSimWidth(Math.round(window.innerWidth / 3), true);
+      if (open) sim.resize();
+    });
+  })();
+
   // Панель следует за разделителем при перетаскивании. Пересчитываем геометрию
   // и в ЗАКРЫТОМ виде: закрытая панель прячется ровно за консолью, и если её
   // размеры не совпадают с реальными (ширина панели меняется пользователем),

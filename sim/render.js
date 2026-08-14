@@ -21,10 +21,10 @@
     const v = view(canvas, world);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // фон вне арены
-    ctx.fillStyle = "#0f1620"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // фон вне арены (светлая тема, как у остальной IDE)
+    ctx.fillStyle = "#eef6f6"; ctx.fillRect(0, 0, canvas.width, canvas.height);
     // пол арены
-    ctx.fillStyle = "#f3efe6";
+    ctx.fillStyle = "#ffffff";
     ctx.fillRect(v.X(0), v.Y(0), world.w * v.s, world.h * v.s);
 
     // сетка 200 мм
@@ -52,7 +52,7 @@
     }
 
     // рамка арены
-    ctx.strokeStyle = "#3a4650"; ctx.lineWidth = 2;
+    ctx.strokeStyle = "#9fc4c5"; ctx.lineWidth = 2;
     ctx.strokeRect(v.X(0), v.Y(0), world.w * v.s, world.h * v.s);
 
     // лучи датчиков (если переданы)
@@ -64,11 +64,11 @@
 
     drawRobot(ctx, v, robot, opts);
 
-    // точки датчиков линии (тёмно-красная = над линией, белая = над полом)
+    // точки датчиков линии (красная = над линией, белая = над полом)
     if (opts.lineDots) for (const d of opts.lineDots) {
       ctx.beginPath(); ctx.arc(v.X(d.x), v.Y(d.y), 4.5, 0, 7);
-      ctx.fillStyle = d.on ? "#c0392b" : "#ffffff"; ctx.fill();
-      ctx.strokeStyle = "#222"; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = d.on ? "#e24b4a" : "#ffffff"; ctx.fill();
+      ctx.strokeStyle = "#5f5e5a"; ctx.lineWidth = 1; ctx.stroke();
     }
 
     // след (трасса центра)
@@ -140,17 +140,17 @@
       const rgb = [fx.r, fx.g, fx.b];
       if (fx.name === "rainbow") return "hsl(" + Math.round(((i / n) * 360 + t * 120) % 360) + ",85%,55%)";
       if (fx.name === "running" || fx.name === "rotating" || fx.name === "spinner")
-        return (i === Math.floor(t * 6) % n) ? rgbCss(rgb) : "#20303f";
+        return (i === Math.floor(t * 6) % n) ? rgbCss(rgb) : "#c9d4d9";
       if (fx.name === "breathing") {
         const k = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * 3));
         return rgbCss(rgb.map((c) => Math.round(c * k)));
       }
       if (fx.name === "sparkle")
-        return ((i * 7 + Math.floor(t * 8)) % 5 === 0) ? rgbCss(rgb) : "#20303f";
+        return ((i * 7 + Math.floor(t * 8)) % 5 === 0) ? rgbCss(rgb) : "#c9d4d9";
       return rgbCss(rgb);
     }
     const p = opts.pixels && opts.pixels[i];
-    return p ? rgbCss(p) : "#20303f";
+    return p ? rgbCss(p) : "#c9d4d9";                 // погашенный светодиод
   }
   const rgbCss = (c) => "rgb(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + ")";
 
