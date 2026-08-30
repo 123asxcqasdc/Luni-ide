@@ -588,7 +588,7 @@ def window_new():
     if HAS_WEBVIEW:
         try:
             webview.create_window(
-                "UNI IDE " + VERSION + " — " + name, url,
+                "UNI IDE — " + name, url,
                 width=1280, height=800, min_size=(900, 600), maximized=True,
             )
             opened = True
@@ -1800,7 +1800,7 @@ if __name__ == "__main__":
         t = threading.Thread(target=start_flask, daemon=True)
         t.start()
         webview.create_window(
-            "UNI IDE " + VERSION,
+            "UNI IDE",
             "http://127.0.0.1:5000",
             width=1280,
             height=800,

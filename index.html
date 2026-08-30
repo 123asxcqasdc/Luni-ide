@@ -1896,9 +1896,9 @@ function setStatus(msg) { $("#stMsg").textContent = msg; }
 
 /* ---------- env / ports ---------- */
 let APP_VERSION = "";                       // версия UNI IDE (из /api/env) — в заголовок окна
+// Версию в заголовок не выносим — она и так видна в статус-баре справа внизу.
 function applyWindowTitle() {
-  const v = APP_VERSION ? " " + APP_VERSION : "";
-  document.title = "UNI IDE" + v + (currentName ? " · " + currentName : "");
+  document.title = "UNI IDE" + (currentName ? " · " + currentName : "");
 }
 /* Сегмент «среда» в статус-баре объединяет всё техническое (arduino-cli,
    ядро esp32, pyserial, прогрев) в одно понятное состояние; детали — в title. */
