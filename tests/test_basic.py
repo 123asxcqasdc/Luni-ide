@@ -350,6 +350,65 @@ class TestPortsPileup(BaseCase):
         self.assertEqual(lp.scans, 1)
 
 
+class TestSimulatorFlag(BaseCase):
+    """Симулятор — экспериментальная функция, выключенная по умолчанию:
+    в обычной сборке его модули не отдаются и интерфейс о нём не знает."""
+
+    def setUp(self):
+        super().setUp()
+        self._sim_saved = server.SIM_ENABLED
+
+    def tearDown(self):
+        server.SIM_ENABLED = self._sim_saved
+
+    def test_disabled_hides_everything(self):
+        server.SIM_ENABLED = False
+        server.run_cli = lambda *a, **k: (True, "", "")
+        self.assertFalse(self.client.get("/api/env").get_json()["simulator"])
+        self.assertEqual(self.client.get("/sim/sim.js").status_code, 404)
+        self.assertEqual(self.client.get("/image/UniBase.png").status_code, 404)
+
+    def test_enabled_serves_modules(self):
+        server.SIM_ENABLED = True
+        server.run_cli = lambda *a, **k: (True, "", "")
+        self.assertTrue(self.client.get("/api/env").get_json()["simulator"])
+        # файлы существуют в репозитории и отдаются
+        self.assertEqual(self.client.get("/sim/sim.js").status_code, 200)
+        self.assertEqual(self.client.get("/image/UniBase.png").status_code, 200)
+
+    def test_env_var_switches_it_on(self):
+        old = os.environ.get("UNI_SIM")
+        try:
+            for val, want in (("1", True), ("true", True), ("on", True),
+                              ("0", False), ("", False)):
+                os.environ["UNI_SIM"] = val
+                self.assertEqual(server._sim_enabled(), want, "UNI_SIM=" + repr(val))
+        finally:
+            if old is None:
+                os.environ.pop("UNI_SIM", None)
+            else:
+                os.environ["UNI_SIM"] = old
+
+    def test_marker_file_switches_it_on(self):
+        old = os.environ.pop("UNI_SIM", None)
+        marker = os.path.join(server.BASE, "sim-enabled.txt")
+        existed = os.path.exists(marker)
+        try:
+            if not existed:
+                self.assertFalse(server._sim_enabled())
+                with open(marker, "w") as f:
+                    f.write("")
+            self.assertTrue(server._sim_enabled())
+        finally:
+            if not existed:
+                try:
+                    os.remove(marker)
+                except OSError:
+                    pass
+            if old is not None:
+                os.environ["UNI_SIM"] = old
+
+
 class FakePopen:
     """Подмена subprocess.Popen для проверки контракта _stream_cli
     (регистрация процесса + пометка отмены в финальном событии)."""

@@ -1090,6 +1090,11 @@
   }
 
   /* ===================== 2D-симулятор ===================== */
+  /* Выключён по умолчанию: кнопка и панель скрыты, пока сервер не сообщит,
+     что симулятор включён (тогда на <body> появляется класс sim-on).
+     Селектор с :not() специально более «сильный», чем правила ниже. */
+  body:not(.sim-on) .sim-toggle,
+  body:not(.sim-on) .sim-panel { display: none !important; }
   /* кнопка-открывашка — прямо на разделителе код|консоль */
   .sim-toggle {
     position: absolute;
@@ -1532,14 +1537,8 @@
 <script src="/vendor/codemirror/addon/hint/show-hint.min.js"></script>
 <script src="/vendor/codemirror/addon/lint/lint.min.js"></script>
 <!-- модули 2D-симулятора (отдаются сервером из папки sim/) -->
-<script src="/sim/modules.js"></script>
-<script src="/sim/cpp.js"></script>
-<script src="/sim/interp.js"></script>
-<script src="/sim/robot.js"></script>
-<script src="/sim/world.js"></script>
-<script src="/sim/render.js"></script>
-<script src="/sim/api.js"></script>
-<script src="/sim/sim.js"></script>
+<!-- модули 2D-симулятора грузятся динамически и только если он включён
+     на сервере (см. SIM_ENABLED в server.py) — см. bootSimulator() ниже -->
 <script>
 const $ = (s) => document.querySelector(s);
 // Сбой сети/сервера не должен сыпать uncaught-исключения из фоновых опросов
@@ -3410,16 +3409,38 @@ $("#themeSelect").addEventListener("change", function () {
   await loadInstalled();   // включает refreshLibSymbols() — подтянет методы библиотек
 })();
 
-/* ---------- 2D-симулятор: выезжающая панель ---------- */
-(function initSim() {
-  const panel = $("#simPanel"), toggle = $("#simToggle"), canvas = $("#simCanvas");
-  // модули симулятора не загрузились — убираем и кнопку, и саму панель
-  // (иначе она осталась бы на экране с непроставленной геометрией)
-  if (!window.Sim || !canvas) {
-    if (toggle) toggle.style.display = "none";
-    if (panel) panel.style.display = "none";
+/* ---------- 2D-симулятор: выезжающая панель ----------
+   Экспериментальная функция. Запускается ТОЛЬКО если сервер сообщил
+   simulator:true (см. SIM_ENABLED в server.py). При выключенном симуляторе
+   модули sim/ даже не скачиваются, а панель и кнопка остаются скрытыми. */
+const SIM_FILES = ["modules", "cpp", "interp", "robot", "world", "render", "api", "sim"];
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = res; s.onerror = () => rej(new Error("не загрузился " + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function bootSimulator() {
+  let env = null;
+  try { env = await api("/api/env"); } catch (_) { }
+  if (!env || !env.simulator) return;            // выключен — ничего не грузим
+  try {
+    for (const f of SIM_FILES) await loadScript("/sim/" + f + ".js");
+  } catch (e) {
+    console.warn("Симулятор не запущен:", e.message);
     return;
   }
+  if (!window.Sim) return;
+  document.body.classList.add("sim-on");         // показать кнопку и панель
+  initSim();
+}
+
+function initSim() {
+  const panel = $("#simPanel"), toggle = $("#simToggle"), canvas = $("#simCanvas");
+  if (!window.Sim || !canvas) return;
   const sim = new Sim(canvas);
   window._sim = sim;
   let open = false;
@@ -3654,7 +3675,9 @@ $("#themeSelect").addEventListener("change", function () {
   $("#simScenario").addEventListener("change", (e) => sim.setScenario(e.target.value));
   $("#simSpeed").addEventListener("change", (e) => { sim.speed = parseFloat(e.target.value); });
   window.addEventListener("resize", () => { if (window._simReposition) window._simReposition(); });
-})();
+}
+
+bootSimulator();
 </script>
 </body>
 </html>

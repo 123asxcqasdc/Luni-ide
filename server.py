@@ -59,6 +59,21 @@ FQBN = "esp32:esp32:esp32"
 # уходит в заголовок окна и в /api/env. Меняем версию правкой ТОЛЬКО этой строки.
 VERSION = "1.3.0"
 
+# --------------------------------------------------------------------------- #
+# 2D-симулятор — экспериментальная функция, ВЫКЛЮЧЕНА по умолчанию.
+# В обычной сборке ученики её не видят: модули sim/ не отдаются, панель и кнопка
+# в интерфейсе не появляются. Включается любым из двух способов:
+#   1) переменная окружения UNI_SIM=1  (для разработки);
+#   2) файл sim-enabled.txt рядом с приложением (чтобы включить у себя без
+#      пересборки — достаточно создать пустой файл).
+# --------------------------------------------------------------------------- #
+def _sim_enabled():
+    if os.environ.get("UNI_SIM", "").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    return os.path.exists(os.path.join(BASE, "sim-enabled.txt"))
+
+SIM_ENABLED = _sim_enabled()
+
 # Постоянный кэш сборки — ядро и библиотеки компилируются один раз
 BUILD_CACHE = os.path.join(BASE, "build-cache")
 BUILD_PATH  = os.path.join(BASE, "build-tmp")
@@ -442,13 +457,17 @@ def vendor(filename):
 
 @app.route("/sim/<path:filename>")
 def sim_files(filename):
-    """Модули 2D-симулятора (интерпретатор, кинематика, рендер, драйвер)."""
+    """Модули 2D-симулятора. При выключенном симуляторе не отдаются вовсе."""
+    if not SIM_ENABLED:
+        return ("", 404)
     return send_from_directory(os.path.join(BASE, "sim"), filename)
 
 
 @app.route("/image/<path:filename>")
 def image_files(filename):
     """Мнемосхемы конструктора (UniBase, UniDev) для конфигуратора исполнителя."""
+    if not SIM_ENABLED:
+        return ("", 404)
     return send_from_directory(os.path.join(BASE, "image"), filename)
 
 
@@ -1751,6 +1770,7 @@ def env():
         "portable": IS_PORTABLE,
         "version": ver,
         "app_version": VERSION,
+        "simulator": SIM_ENABLED,
         "fqbn": FQBN,
     })
 
