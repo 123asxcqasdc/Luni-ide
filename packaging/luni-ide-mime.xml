@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Объявление MIME-типа скетча Arduino (.ino) для Luni IDE.
+  Нужно, чтобы в файловом менеджере .ino открывался в Luni IDE
+  (MimeType=text/x-arduino в .desktop).
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="text/x-arduino">
+    <comment>Arduino sketch</comment>
+    <comment xml:lang="ru">Скетч Arduino</comment>
+    <sub-class-of type="text/plain"/>
+    <glob pattern="*.ino"/>
+    <icon name="luni-ide"/>
+  </mime-type>
+</mime-info>

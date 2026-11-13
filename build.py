@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-build.py — сборка UNI IDE в исполняемое приложение и установщик.
+build.py — сборка Luni IDE под Windows (приложение + установщик).
 
-Кроссплатформенный оркестратор сборки (заменяет старый build_exe.bat).
-Сейчас полностью поддержана сборка под Windows; для macOS оставлены заготовки.
+Оркестратор сборки для Windows (заменяет старый build_exe.bat).
+Linux (Debian .deb и AppImage) собирается отдельным скриптом build_linux.py.
 
 ЧТО ДЕЛАЕТ (Windows):
-  1) PyInstaller (--onedir, --noconsole) → dist/UNI-IDE/UNI-IDE.exe
+  1) PyInstaller (--onedir, --noconsole) → dist/Luni-IDE/Luni-IDE.exe
   2) копирует index.html, vendor, иконки и ПЕРЕНОСИМЫЙ тулчейн
      (arduino-cli.exe + arduino-data/arduino-user) рядом с exe
-  3) Inno Setup (ISCC.exe) → installer-out/UNI-IDE-Setup-<версия>.exe
+  3) Inno Setup (ISCC.exe) → installer-out/Luni-IDE-Setup-<версия>.exe
 
 ПЕРЕД ПЕРВОЙ СБОРКОЙ один раз выполните (нужен интернет):
      python prepare_bundle.py
@@ -39,7 +39,7 @@ import subprocess
 # --------------------------------------------------------------------------- #
 # Параметры сборки
 # --------------------------------------------------------------------------- #
-APP_NAME = "UNI-IDE"        # имя exe и папки бандла (без пробелов)
+APP_NAME = "Luni-IDE"       # имя exe и папки бандла (без пробелов)
 
 HERE     = os.path.dirname(os.path.abspath(__file__))
 
@@ -65,7 +65,7 @@ PAYLOAD_MIN_BASE = "1.3.0"
 
 DIST_DIR = os.path.join(HERE, "dist", APP_NAME)          # выход PyInstaller (--onedir)
 OUT_DIR  = os.path.join(HERE, "installer-out")           # куда кладём setup.exe
-ISS_FILE = os.path.join(HERE, "installer", "UNI-IDE.iss")
+ISS_FILE = os.path.join(HERE, "installer", "Luni-IDE.iss")
 
 # Ресурсы, которые должны лежать РЯДОМ с exe. server.py — тоже обычный файл:
 # exe (bootstrap.py) запускает его с диска, что и делает возможными лёгкие
@@ -242,7 +242,7 @@ def build_installer():
         log("Установите Inno Setup 6 и повторите:")
         log("   https://jrsoftware.org/isdl.php")
         log("   или:  winget install JRSoftware.InnoSetup")
-        log("Бандл собран в dist/UNI-IDE, но установщик НЕ создан.")
+        log("Бандл собран в dist/Luni-IDE, но установщик НЕ создан.")
         sys.exit(2)
 
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -253,7 +253,7 @@ def build_installer():
          "/O" + OUT_DIR,
          ISS_FILE])
 
-    setup = os.path.join(OUT_DIR, "UNI-IDE-Setup-" + VERSION + ".exe")
+    setup = os.path.join(OUT_DIR, "Luni-IDE-Setup-" + VERSION + ".exe")
     log("ГОТОВО. Установщик: " + setup)
 
 
@@ -261,14 +261,17 @@ def build_installer():
 # main
 # --------------------------------------------------------------------------- #
 def main():
-    ap = argparse.ArgumentParser(description="Сборка UNI IDE")
+    ap = argparse.ArgumentParser(description="Сборка Luni IDE (Windows)")
     ap.add_argument("--no-installer", action="store_true",
                     help="собрать только exe-бандл, без Inno Setup")
     args = ap.parse_args()
 
     if sys.platform != "win32":
-        log("Пока поддержана только сборка под Windows.")
-        log("Сборку под macOS (.app/.dmg) добавим отдельно — для неё нужен Mac.")
+        log("Этот скрипт собирает только Windows-версию.")
+        log("Для Linux (Debian .deb и AppImage) используйте:")
+        log("     python3 build_linux.py deb        # пакет .deb")
+        log("     python3 build_linux.py appimage   # AppImage")
+        log("     python3 build_linux.py all        # и то, и другое")
         sys.exit(1)
 
     keep_system_awake()

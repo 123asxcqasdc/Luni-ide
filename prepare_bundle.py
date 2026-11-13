@@ -9,8 +9,8 @@ prepare_bundle.py — ШАГ ДЛЯ УЧИТЕЛЯ, ВЫПОЛНЯЕТСЯ ОД�
   (опц.) ставит нужные библиотеки в ./arduino-user.
 
 После этого папка arduino-data содержит весь компилятор и больше не требует
-интернета. Дальше запускайте `python build.py` — он соберёт UNI-IDE.exe и
-установщик UNI-IDE-Setup-x.x.x.exe.
+интернета. Дальше запускайте `python build.py` — он соберёт Luni-IDE.exe и
+установщик Luni-IDE-Setup-x.x.x.exe. (Linux-аналог — setup_toolchain_linux.py.)
 """
 
 import os

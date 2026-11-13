@@ -1,19 +1,19 @@
 ; ============================================================================
-;  UNI-IDE.iss — установщик UNI IDE (ESP32 / UniBase) для Windows.
+;  Luni-IDE.iss — установщик Luni IDE (ESP32 / UniBase) для Windows.
 ;  Собирается компилятором Inno Setup 6 (ISCC.exe).
 ;
 ;  Обычно вызывается из build.py, который передаёт пути и версию:
-;     ISCC /DAppVersion=1.0.0 /DSourceDir=<...\dist\UNI-IDE> /DRepoDir=<репозиторий> UNI-IDE.iss
+;     ISCC /DAppVersion=1.0.0 /DSourceDir=<...\dist\Luni-IDE> /DRepoDir=<репозиторий> Luni-IDE.iss
 ;
 ;  Можно собрать и вручную (из этой папки), тогда берутся значения по умолчанию:
-;     ISCC UNI-IDE.iss
+;     ISCC Luni-IDE.iss
 ;
 ;  Тип установки: ДЛЯ ПОЛЬЗОВАТЕЛЯ, без прав администратора
-;  (ставится в %LOCALAPPDATA%\Programs\UNI IDE).
+;  (ставится в %LOCALAPPDATA%\Programs\Luni IDE).
 ; ============================================================================
 
-#define MyAppName "UNI IDE"
-#define MyAppExeName "UNI-IDE.exe"
+#define MyAppName "Luni IDE"
+#define MyAppExeName "Luni-IDE.exe"
 #define MyAppPublisher "UniBase"
 
 ; Версия (переопределяется из build.py через /DAppVersion=...)
@@ -23,7 +23,7 @@
 
 ; Папка с готовым бандлом PyInstaller (--onedir). По умолчанию — относительно .iss.
 #ifndef SourceDir
-  #define SourceDir "..\dist\UNI-IDE"
+  #define SourceDir "..\dist\Luni-IDE"
 #endif
 
 ; Корень репозитория (для иконки и драйвера CH341SER.EXE).
@@ -42,14 +42,14 @@ VersionInfoVersion={#AppVersion}
 
 ; --- Установка для пользователя, без админа ---
 PrivilegesRequired=lowest
-DefaultDirName={autopf}\UNI IDE
-DefaultGroupName=UNI IDE
+DefaultDirName={autopf}\Luni IDE
+DefaultGroupName=Luni IDE
 DisableProgramGroupPage=yes
 DisableDirPage=auto
 
 ; --- Выходной установщик ---
 OutputDir=..\installer-out
-OutputBaseFilename=UNI-IDE-Setup-{#AppVersion}
+OutputBaseFilename=Luni-IDE-Setup-{#AppVersion}
 SetupIconFile={#RepoDir}\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
@@ -77,7 +77,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Type: filesandordirs; Name: "{app}\updates"
 
 [Files]
-; Весь бандл (UNI-IDE.exe, _internal, server.py, index.html, vendor, arduino-cli, arduino-data, ...)
+; Весь бандл (Luni-IDE.exe, _internal, server.py, index.html, vendor, arduino-cli, arduino-data, ...)
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 ; Драйвер CH340: INF-пакет для тихой установки через pnputil (галочка в конце)
 ; + CH341SER.EXE как запасной вариант для ручной установки.
@@ -99,7 +99,7 @@ Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilen
 ; «не удаётся найти указанный файл». {sysnative} указывает на настоящий
 ; System32 в обход этого перенаправления.
 Filename: "{sysnative}\pnputil.exe"; Parameters: "/add-driver ""{app}\drivers\CH341SER\CH341SER.INF"" /install"; WorkingDir: "{app}\drivers\CH341SER"; Description: "Установить драйвер CH340 (нужен, чтобы ПК увидел плату ESP32)"; Flags: postinstall skipifsilent unchecked shellexec waituntilterminated; Verb: runas
-; Галочка «Запустить UNI IDE» (по умолчанию ВКЛ).
+; Галочка «Запустить Luni IDE» (по умолчанию ВКЛ).
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]

@@ -1,0 +1,21 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Luni IDE
+GenericName=ESP32 IDE
+Comment=Среда программирования плат ESP32 Dev Module
+Comment[en]=Programming environment for ESP32 Dev Module boards
+Exec=@EXEC@ %F
+TryExec=@TRY_EXEC@
+Icon=luni-ide
+Terminal=false
+StartupNotify=true
+StartupWMClass=Luni-IDE
+Categories=Development;IDE;Electronics;
+Keywords=ESP32;Arduino;IDE;Luni;microcontroller;скетч;
+MimeType=text/x-arduino;
+Actions=new-project;
+
+[Desktop Action new-project]
+Name=Новый проект
+Exec=@EXEC@
