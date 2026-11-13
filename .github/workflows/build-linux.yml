@@ -1,7 +1,8 @@
 name: build-linux
 
 # Сборка Linux-артефактов Luni IDE: Debian-пакет и AppImage.
-# Артефакты появляются в разделе Actions → нужный запуск (и в релизе при теге v*).
+#   push в main / pull_request → тесты + сборка, файлы в артефактах запуска;
+#   push тега v* → те же файлы прикрепляются к GitHub Release.
 
 on:
   push:
@@ -11,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   tests:
@@ -36,6 +37,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Версия в теге совпадает с VERSION в server.py
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(sed -n 's/^VERSION *= *"\([^"]*\)".*/\1/p' server.py)
+          echo "server.py: VERSION=$version, тег: $GITHUB_REF_NAME"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Тег $GITHUB_REF_NAME не совпадает с VERSION=$version в server.py"
+            exit 1
+          fi
 
       - name: Зависимости сборки
         run: |
@@ -70,3 +81,80 @@ jobs:
             dist/*.AppImage
             dist/*.AppImage.sha256
             dist/*.AppDir.tar.gz
+
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-22.04
+    needs: packages
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: luni-ide-linux
+          path: dist
+
+      - name: Список файлов релиза
+        run: ls -la dist/
+
+      - name: Публикация релиза
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Luni IDE ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            ## Luni IDE ${{ github.ref_name }} — сборка для Linux
+
+            Среда программирования ESP32 Dev Module (UniBase): редактор с подсветкой
+            и автодополнением, компиляция и прошивка через `arduino-cli`,
+            serial-монитор, менеджер библиотек.
+
+            ### Установка
+
+            **Debian 12 / Ubuntu 22.04+ / Mint 21+**
+
+            ```bash
+            sudo apt install ./luni-ide_*_amd64.deb
+            ```
+
+            **Любой Linux (AppImage)**
+
+            ```bash
+            chmod +x Luni-IDE-*-x86_64.AppImage
+            ./Luni-IDE-*-x86_64.AppImage
+            ```
+
+            Права на serial-порт (иначе плата не появится в списке):
+
+            ```bash
+            sudo usermod -aG dialout "$USER"
+            ```
+
+            ### Тулчейн (arduino-cli + ядро ESP32)
+
+            В пакеты **не входит** (иначе они весили бы сотни МБ). Поставьте один раз:
+
+            ```bash
+            python3 /opt/luni-ide/setup_toolchain_linux.py
+            ```
+
+            Подробности — [README-LINUX.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README-LINUX.md).
+
+            ### Файлы
+
+            | Файл | Что это |
+            | --- | --- |
+            | `luni-ide_<версия>_amd64.deb` | Debian-пакет (приложение в `/opt/luni-ide`) |
+            | `Luni-IDE-<версия>-x86_64.AppImage` | переносимый файл, без установки |
+            | `*.sha256` | контрольные суммы |
+
+            Windows-версия (`.exe` + установщик) собирается отдельно на Windows:
+            `python prepare_bundle.py` → `python build.py`.
+          files: |
+            dist/*.deb
+            dist/*.deb.sha256
+            dist/*.AppImage
+            dist/*.AppImage.sha256

@@ -236,3 +236,22 @@ installer/Luni-IDE.iss             Windows-установщик
 * нет самоподмены файлов (payload-обновления): вместо этого `.deb`/AppImage;
 * `--no-frozen` даёт маленький пакет, использующий системный Python;
 * данные лежат в `~/.local/share/luni-ide`, а не рядом с бинарником.
+
+## 11. Выпуск релиза (для мейнтейнера)
+
+Релиз собирается и публикуется автоматически — `.github/workflows/build-linux.yml`:
+
+1. Поднимите `VERSION` в `server.py` и влейте изменения в `main`
+   (CI прогонит тесты и проверит сборку).
+2. Поставьте тег на `main` и запушьте его:
+   ```bash
+   git tag -a v1.4.0 -m "Luni IDE 1.4.0"
+   git push origin v1.4.0
+   ```
+3. Воркфлоу проверит, что тег совпадает с `VERSION`, соберёт `.deb` и `.AppImage`
+   и прикрепит к релизу файлы `luni-ide_<версия>_amd64.deb`,
+   `Luni-IDE-<версия>-x86_64.AppImage` и их `.sha256`.
+
+Тег обязан иметь вид `vX.Y.Z` — по нему автообновление в `server.py` определяет
+последнюю версию (`/releases/latest`). Windows-артефакты (`Luni-IDE-Setup-*.exe`)
+собираются отдельно на Windows: `python prepare_bundle.py` → `python build.py`.
