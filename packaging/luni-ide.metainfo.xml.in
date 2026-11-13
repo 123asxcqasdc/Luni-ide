@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AppStream-метаданные Luni IDE.
+  Используются менеджерами приложений (GNOME Software, KDE Discover) и
+  AppImage/appimagetool. @VERSION@ подставляет build_linux.py (дата не
+  указывается, чтобы сборка была воспроизводимой).
+-->
+<component type="desktop-application">
+  <id>luni-ide</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <!-- В репозитории нет файла лицензии, поэтому пакет помечен как проприетарный.
+       Если добавите LICENSE (например, MIT), замените значение ниже. -->
+  <project_license>LicenseRef-proprietary</project_license>
+
+  <name>Luni IDE</name>
+  <summary>Среда программирования плат ESP32 Dev Module</summary>
+  <summary xml:lang="en">Programming environment for ESP32 Dev Module boards</summary>
+
+  <description>
+    <p>
+      Luni IDE — простая локальная среда программирования для учебных плат
+      на ESP32 Dev Module (UniBase). Внутри: редактор кода с подсветкой и
+      автодополнением, компиляция и прошивка через arduino-cli, serial-монитор,
+      менеджер библиотек и примеры из установленных библиотек.
+    </p>
+    <p>Работает офлайн: ядро ESP32 и arduino-cli можно поставить локально.</p>
+  </description>
+
+  <launchable type="desktop-id">luni-ide.desktop</launchable>
+  <url type="homepage">https://github.com/123asxcqasdc/Luni-ide</url>
+  <url type="vcs-browser">https://github.com/123asxcqasdc/Luni-ide</url>
+
+  <developer_name>Luni IDE</developer_name>
+  <categories>
+    <category>Development</category>
+    <category>IDE</category>
+  </categories>
+  <keywords>
+    <keyword>ESP32</keyword>
+    <keyword>Arduino</keyword>
+    <keyword>IDE</keyword>
+    <keyword>микроконтроллер</keyword>
+  </keywords>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="@VERSION@">
+      <description>
+        <p>Сборка для Linux: Debian-пакет и AppImage.</p>
+      </description>
+    </release>
+  </releases>
+</component>

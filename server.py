@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-UNI IDE — простая локальная IDE для ESP32 Dev Module.
+Luni IDE — простая локальная IDE для ESP32 Dev Module.
 
-Работает в двух режимах:
+Работает в трёх режимах:
   1) как обычный python-скрипт (для разработки) — использует системный arduino-cli;
-  2) как собранный .exe (PyInstaller) с ПЕРЕНОСИМЫМ тулчейном — всё офлайн,
-     рядом с exe лежит arduino-cli.exe и папка arduino-data с ядром ESP32.
+  2) как собранное приложение (PyInstaller) с ПЕРЕНОСИМЫМ тулчейном — всё офлайн,
+     рядом с исполняемым файлом лежит arduino-cli и папка arduino-data с ядром ESP32
+     (Windows .exe, Linux AppImage / .deb);
+  3) из системной установки (.deb) — файлы только для чтения, данные и кэш сборки
+     живут в пользовательском каталоге XDG (~/.local/share/luni-ide).
 
 Загрузка зашита ТОЛЬКО на плату ESP32 Dev Module (FQBN esp32:esp32:esp32).
 """
@@ -36,6 +39,11 @@ except Exception:
 # Расположение файлов: работает и для скрипта, и для собранного .exe
 # --------------------------------------------------------------------------- #
 def base_dir():
+    # LUNI_BASE позволяет запускать server.py «из упаковки» (zipapp, AppImage,
+    # read-only копия), когда каталог с ресурсами не совпадает с __file__.
+    env = os.environ.get("LUNI_BASE", "").strip()
+    if env and os.path.isdir(env):
+        return os.path.abspath(env)
     if getattr(sys, "frozen", False):          # запущено как .exe
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
@@ -43,20 +51,73 @@ def base_dir():
 BASE = base_dir()
 IS_FROZEN = getattr(sys, "frozen", False)
 
-# Переносимый тулчейн (присутствует только в подготовленном бандле)
-PORTABLE_DATA = os.path.join(BASE, "arduino-data")
-PORTABLE_USER = os.path.join(BASE, "arduino-user")
-PORTABLE_DL   = os.path.join(BASE, "arduino-downloads")
-IS_PORTABLE   = os.path.isdir(PORTABLE_DATA)
+# --- платформа ------------------------------------------------------------- #
+# На Linux приложение ставится в /opt (только чтение) или запускается из
+# смонтированного AppImage (тоже только чтение). Поэтому код и данные разделены:
+# код — в BASE, всё изменяемое — в пользовательском каталоге XDG.
+IS_WINDOWS  = sys.platform == "win32"
+IS_LINUX    = sys.platform.startswith("linux")
+IS_APPIMAGE = bool(os.environ.get("APPIMAGE") or os.environ.get("APPDIR"))
 
-# Иконка окна/приложения (рядом со скриптом или exe)
-ICON_PATH = os.path.join(BASE, "icon.ico")
+APP_SLUG  = "luni-ide"          # имя в файловой системе (XDG, .desktop, пакет)
+APP_TITLE = "Luni IDE"         # человекочитаемое имя (окно, заголовки, меню)
+
+
+def is_writable_dir(path):
+    """True, если в каталог реально можно писать (AppImage и /opt — нельзя)."""
+    try:
+        os.makedirs(path, exist_ok=True)
+        probe = os.path.join(path, ".luni-write-test")
+        with open(probe, "w", encoding="utf-8") as f:
+            f.write("x")
+        os.remove(probe)
+        return True
+    except Exception:
+        return False
+
+
+def user_data_dir():
+    """Каталог изменяемых данных: настройки, кэш сборки, обновления."""
+    if IS_WINDOWS:
+        root = os.environ.get("LOCALAPPDATA") or os.path.join(
+            os.path.expanduser("~"), "AppData", "Local")
+        return os.path.join(root, "Luni-IDE")
+    if sys.platform == "darwin":
+        return os.path.join(os.path.expanduser("~"), "Library", "Application Support", APP_SLUG)
+    root = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.join(root, APP_SLUG)
+
+
+def _toolchain_root():
+    """Где лежит переносимый тулчейн (arduino-cli + arduino-data с ядром ESP32).
+
+    Порядок: переменная LUNI_TOOLCHAIN_DIR → рядом с приложением (портативный
+    бандл) → ~/.local/share/luni-ide/toolchain (вариант из setup_toolchain_linux.py).
+    """
+    env = os.environ.get("LUNI_TOOLCHAIN_DIR", "").strip()
+    if env:
+        return env
+    for cand in (BASE, os.path.join(user_data_dir(), "toolchain")):
+        if os.path.isdir(os.path.join(cand, "arduino-data")):
+            return cand
+    return BASE
+
+TOOLCHAIN_ROOT = _toolchain_root()
+PORTABLE_DATA  = os.path.join(TOOLCHAIN_ROOT, "arduino-data")
+PORTABLE_USER  = os.path.join(TOOLCHAIN_ROOT, "arduino-user")
+PORTABLE_DL    = os.path.join(TOOLCHAIN_ROOT, "arduino-downloads")
+IS_PORTABLE    = os.path.isdir(PORTABLE_DATA)
+
+# Иконка окна/приложения. На Linux оконные менеджеры и pywebview ждут PNG,
+# на Windows — ICO.
+ICON_PATH = os.path.join(BASE, "icon.ico" if IS_WINDOWS else "icon.png")
 
 # Плата зафиксирована: ESP32 Dev Module
 FQBN = "esp32:esp32:esp32"
 
-# Версия приложения — единый источник. build.py читает её отсюда (regex), она же
-# уходит в заголовок окна и в /api/env. Меняем версию правкой ТОЛЬКО этой строки.
+# Версия приложения — единый источник. build.py / build_linux.py читают её
+# отсюда (regex), она же уходит в заголовок окна, /api/env и метаданные пакетов.
+# Меняем версию правкой ТОЛЬКО этой строки.
 VERSION = "1.4.0"
 
 # --------------------------------------------------------------------------- #
@@ -74,18 +135,70 @@ def _sim_enabled():
 
 SIM_ENABLED = _sim_enabled()
 
+# Куда писать. Портативный бандл (Windows exe, AppImage, собранный вручную
+# каталог) держит данные рядом с собой; системная установка (.deb в /opt) —
+# в XDG-каталоге пользователя, потому что /opt и точка монтирования AppImage
+# доступны только для чтения.
+PORTABLE_MODE = is_writable_dir(BASE) and not IS_APPIMAGE
+WORKSPACE     = BASE if PORTABLE_MODE else user_data_dir()
+VAR_DIR       = WORKSPACE
+
+try:
+    os.makedirs(WORKSPACE, exist_ok=True)
+except Exception:
+    pass
+
 # Постоянный кэш сборки — ядро и библиотеки компилируются один раз
-BUILD_CACHE = os.path.join(BASE, "build-cache")
-BUILD_PATH  = os.path.join(BASE, "build-tmp")
+BUILD_CACHE = os.path.join(VAR_DIR, "build-cache")
+BUILD_PATH  = os.path.join(VAR_DIR, "build-tmp")
+
+
+def writable_workspace():
+    """Каталог, доступный на запись (совместимость со старым API)."""
+    return WORKSPACE
+
+
+# Локальный HTTP-сервер. Порт можно переопределить (LUNI_PORT или --port),
+# например если 5000 занят другим экземпляром IDE.
+HOST = "127.0.0.1"
+PORT = int(os.environ.get("LUNI_PORT", "5000") or 5000)
+
+
+def app_url():
+    """URL локального сервера (все окна и вкладки ходят только сюда)."""
+    return f"http://{HOST}:{PORT}"
+
+
+def _first_executable(paths):
+    for p in paths:
+        if p and os.path.isfile(p) and (IS_WINDOWS or os.access(p, os.X_OK)):
+            return p
+    return None
 
 
 def resolve_cli():
-    """Бандл: arduino-cli.exe рядом. Иначе — системный из PATH."""
-    for name in ("arduino-cli.exe", "arduino-cli"):
-        p = os.path.join(BASE, name)
-        if os.path.exists(p):
-            return p
-    return os.environ.get("ARDUINO_CLI", "arduino-cli")
+    """Ищем arduino-cli: переменная ARDUINO_CLI → бандл/тулчейн → системный PATH.
+
+    В .deb и AppImage arduino-cli может лежать рядом с приложением (офлайн-бандл)
+    или в ~/.local/share/luni-ide/toolchain после setup_toolchain_linux.py.
+    """
+    names = ("arduino-cli.exe", "arduino-cli") if IS_WINDOWS else ("arduino-cli",)
+    cands = []
+    env = os.environ.get("ARDUINO_CLI", "").strip()
+    if env:
+        cands.append(env)
+    for root in (BASE, TOOLCHAIN_ROOT, os.path.join(user_data_dir(), "toolchain")):
+        for name in names:
+            cands.append(os.path.join(root, name))
+            cands.append(os.path.join(root, "bin", name))
+    found = _first_executable(cands)
+    if found:
+        return found
+    for name in names:
+        which = shutil.which(name)
+        if which:
+            return which
+    return names[-1]
 
 ARDUINO_CLI = resolve_cli()
 
@@ -99,32 +212,17 @@ def cli_env():
         env["ARDUINO_DIRECTORIES_DOWNLOADS"] = PORTABLE_DL
     return env
 
-
-def writable_workspace():
-    """Папка для скетча. Рядом с exe, если можно писать; иначе — в LOCALAPPDATA."""
-    try:
-        t = os.path.join(BASE, ".w_test")
-        with open(t, "w") as f:
-            f.write("x")
-        os.remove(t)
-        return BASE
-    except Exception:
-        d = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "UNI-IDE")
-        os.makedirs(d, exist_ok=True)
-        return d
-
-WORKSPACE      = writable_workspace()
 # Папка по умолчанию для новых проектов. Каждый проект — отдельная папка
 # <имя>/<имя>.ino (как в Arduino). Но проект можно открыть/сохранить ГДЕ УГОДНО
 # на диске — идентичность проекта определяется абсолютным путём к .ino.
 SKETCHBOOK        = os.path.join(WORKSPACE, "Uni_Sketches")
 NEW_SKETCH_PREFIX = "uni_sketch"
 DEFAULT_SKETCH    = NEW_SKETCH_PREFIX + "1"
-RECENT_FILE       = os.path.join(WORKSPACE, "uni-ide-recent.json")
+RECENT_FILE       = os.path.join(WORKSPACE, "luni-ide-recent.json")
 RECENT_MAX        = 10
 
 # Какие библиотеки подмешивать в автодополнение (по имени из arduino-cli).
-AC_SETTINGS        = os.path.join(WORKSPACE, "uni-ide-autocomplete.json")
+AC_SETTINGS        = os.path.join(WORKSPACE, "luni-ide-autocomplete.json")
 AC_DEFAULT_ENABLED = ["UNI"]
 
 
@@ -245,6 +343,21 @@ def next_sketch_path():
         n += 1
 
 
+def _migrate_legacy_state():
+    """Один раз переносит файлы состояния старого UNI IDE (uni-ide-*)
+    в новые имена luni-ide-*, чтобы у пользователей не пропали настройки."""
+    for new in (RECENT_FILE, AC_SETTINGS):
+        old = os.path.join(WORKSPACE, os.path.basename(new).replace("luni-ide-", "uni-ide-", 1))
+        try:
+            if not os.path.exists(new) and os.path.exists(old):
+                shutil.copy2(old, new)
+        except Exception:
+            pass
+
+
+_migrate_legacy_state()
+
+
 def load_recent():
     """Список абсолютных путей последних проектов (новые — первыми)."""
     try:
@@ -352,10 +465,19 @@ def run_cli(args, timeout=900, nice=False):
         )
         return p.returncode == 0, p.stdout or "", p.stderr or ""
     except FileNotFoundError:
-        return False, "", (
-            "arduino-cli не найден. В бандле он должен лежать рядом с UNI-IDE.exe; "
-            "в режиме разработки — быть в PATH. См. README."
-        )
+        if IS_LINUX:
+            hint = (
+                "arduino-cli не найден. Установите его командой "
+                "`python3 setup_toolchain_linux.py` (скачает arduino-cli и ядро ESP32 "
+                "в ~/.local/share/luni-ide/toolchain) либо поставьте системный пакет "
+                "arduino-cli. См. README-LINUX.md."
+            )
+        else:
+            hint = (
+                "arduino-cli не найден. В бандле он должен лежать рядом с Luni-IDE.exe; "
+                "в режиме разработки — быть в PATH. См. README."
+            )
+        return False, "", hint
     except subprocess.TimeoutExpired:
         return False, "", "Превышено время ожидания операции."
     except Exception as e:  # noqa: BLE001
@@ -602,12 +724,12 @@ def window_new():
     body = request.json or {}
     ino = resolve_sketch_path(body.get("path")) or ensure_default_sketch()
     name = sketch_name_of(ino)
-    url = "http://127.0.0.1:5000/?path=" + quote(ino)
+    url = app_url() + "/?path=" + quote(ino)
     opened = False
     if HAS_WEBVIEW:
         try:
             webview.create_window(
-                "UNI IDE — " + name, url,
+                APP_TITLE + " — " + name, url,
                 width=1280, height=800, min_size=(900, 600), maximized=True,
             )
             opened = True
@@ -1519,7 +1641,7 @@ def mon_send():
 # --------------------------------------------------------------------------- #
 # Автообновление (payload из GitHub Releases)
 # --------------------------------------------------------------------------- #
-# Схема: exe — тонкий загрузчик (bootstrap.py), а логика IDE (server.py,
+# Схема Windows: exe — тонкий загрузчик (bootstrap.py), а логика IDE (server.py,
 # index.html, vendor) — обычные файлы рядом. Релиз публикует лёгкий
 # payload-<ver>.zip (+ .sha256). Фоновый поток раз в несколько часов смотрит
 # тег releases/latest (по редиректу, без API-лимитов GitHub), скачивает payload,
@@ -1527,16 +1649,35 @@ def mon_send():
 # следующем запуске (с бэкапом и автооткатом). Если payload требует более
 # новой полной установки (min_base > базовой версии) — обновление не стейджится,
 # а UI предлагает скачать полный установщик.
+#
+# Схема Linux: payload-подмена файлов невозможна — AppImage смонтирован только
+# для чтения, а .deb принадлежит пакетному менеджеру. Поэтому режим "manual":
+# проверяем версию и показываем в интерфейсе ссылку на страницу релизов, где
+# лежат .deb и .AppImage.
 import zipfile
 import urllib.request
 import urllib.error
 
-GH_OWNER, GH_REPO = "tchelex", "uni-ide"
+# Репозиторий, из которого берутся релизы. Переопределяется переменной
+# окружения LUNI_UPDATE_REPO="owner/repo" (например, при форке).
+def _update_repo():
+    raw = os.environ.get("LUNI_UPDATE_REPO", "").strip().strip("/")
+    if "/" in raw:
+        owner, repo = raw.split("/", 1)
+        if owner and repo:
+            return owner, repo
+    return "123asxcqasdc", "Luni-ide"
+
+GH_OWNER, GH_REPO = _update_repo()
 GH_LATEST_URL   = f"https://github.com/{GH_OWNER}/{GH_REPO}/releases/latest"
 GH_DOWNLOAD_URL = f"https://github.com/{GH_OWNER}/{GH_REPO}/releases/download"
-UPDATES_DIR   = os.path.join(BASE, "updates")
+UPDATES_DIR   = os.path.join(VAR_DIR, "updates")
 UPDATE_PERIOD = 4 * 3600          # сек между фоновыми проверками
 UPDATE_DELAY  = 30                # сек после старта до первой проверки
+
+# "payload" — самоподмена файлов (Windows, тонкий загрузчик);
+# "manual"  — только уведомление со ссылкой на релиз (Linux: .deb / AppImage).
+UPDATE_MODE = "payload" if (IS_WINDOWS and IS_FROZEN) else "manual"
 
 
 def _read_base_version():
@@ -1589,7 +1730,7 @@ def fetch_latest_version(timeout=6):
 
 def _download(url, dst, timeout=30):
     """Скачивает url в файл dst (поток, без лишней памяти)."""
-    req = urllib.request.Request(url, headers={"User-Agent": "UNI-IDE-updater"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Luni-IDE-updater"})
     with urllib.request.urlopen(req, timeout=timeout) as r, open(dst, "wb") as f:
         shutil.copyfileobj(r, f, length=256 * 1024)
 
@@ -1675,6 +1816,13 @@ def check_and_stage_update():
         with _upd_lock:
             if _upd_state["staged"] == latest or _upd_state["need_full"] == latest:
                 return                      # уже подготовлено/решено
+        if UPDATE_MODE == "manual":
+            # Linux: файлы приложения менять нельзя — отправляем на страницу
+            # релизов, где лежат готовые .deb и .AppImage.
+            with _upd_lock:
+                _upd_state["need_full"] = latest
+                _upd_state["staged"] = None
+            return
         os.makedirs(UPDATES_DIR, exist_ok=True)
         name = f"payload-{latest}.zip"
         url_zip = f"{GH_DOWNLOAD_URL}/v{latest}/{name}"
@@ -1718,7 +1866,7 @@ def _update_worker():
 def start_update_worker():
     """Фоновый автоапдейт: в собранном приложении всегда; в dev — только
     по явному флагу UNI_UPDATE=1 (чтобы не качать релизы на машине разработки)."""
-    if not (IS_FROZEN or os.environ.get("UNI_UPDATE") == "1"):
+    if not (IS_FROZEN or os.environ.get("LUNI_UPDATE") == "1" or os.environ.get("UNI_UPDATE") == "1"):
         return
     with _upd_lock:
         if _upd_state["worker"]:
@@ -1736,9 +1884,11 @@ def update_status():
         "ok": True,
         "current": VERSION,
         "staged": st["staged"],          # версия, готовая к применению при перезапуске
-        "need_full": st["need_full"],    # версия, требующая полного установщика
+        "need_full": st["need_full"],    # версия, требующая полного пакета (deb/AppImage)
         "checking": st["checking"],
         "release_url": GH_LATEST_URL,
+        "mode": UPDATE_MODE,             # payload | manual
+        "platform": "linux" if IS_LINUX else ("windows" if IS_WINDOWS else sys.platform),
     })
 
 
@@ -1768,6 +1918,12 @@ def env():
         "esp32_core": core_ok,
         "pyserial": HAS_PYSERIAL,
         "portable": IS_PORTABLE,
+        "portable_mode": PORTABLE_MODE,
+        "appimage": IS_APPIMAGE,
+        "platform": "linux" if IS_LINUX else ("windows" if IS_WINDOWS else sys.platform),
+        "data_dir": WORKSPACE,
+        "cli_path": ARDUINO_CLI,
+        "update_mode": UPDATE_MODE,
         "version": ver,
         "app_version": VERSION,
         "simulator": SIM_ENABLED,
@@ -1783,30 +1939,66 @@ except ImportError:
 
 
 def start_flask():
-    app.run(host="127.0.0.1", port=5000, debug=False, threaded=True)
+    app.run(host=HOST, port=PORT, debug=False, threaded=True)
 
 
 def set_taskbar_app_id():
     """Windows: задать собственный AppUserModelID, чтобы на панели задач
     отображался значок приложения, а не значок интерпретатора Python/IDLE.
     Должно вызываться ДО создания окна."""
-    if sys.platform == "win32":
+    if IS_WINDOWS:
         try:
             import ctypes
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-                "UNI.IDE.ESP32.UniBase"
+                "Luni.IDE.ESP32.UniBase"
             )
         except Exception:
             pass
 
 
+def _parse_args(argv=None):
+    """Аргументы командной строки (в основном для отладки и автотестов)."""
+    import argparse
+
+    ap = argparse.ArgumentParser(
+        prog="luni-ide",
+        description=APP_TITLE + " — среда программирования ESP32 Dev Module",
+    )
+    ap.add_argument("--browser", action="store_true",
+                    help="открыть интерфейс в браузере вместо нативного окна")
+    ap.add_argument("--no-open", action="store_true",
+                    help="не открывать ни окно, ни браузер (только сервер)")
+    ap.add_argument("--port", type=int, default=None,
+                    help=f"порт локального сервера (по умолчанию {PORT})")
+    ap.add_argument("--version", action="version", version=APP_TITLE + " " + VERSION)
+    # Путь к скетчу: `luni-ide /home/user/Blink/Blink.ino` (в т.ч. из файлового
+    # менеджера — .desktop передаёт файл как %F).
+    ap.add_argument("file", nargs="?", default=None,
+                    help="скетч (.ino) или папка проекта, который нужно открыть")
+    return ap.parse_args(argv)
+
+
+def ui_url(path=None):
+    """URL интерфейса; если передан скетч — сразу с ?path=."""
+    ino = resolve_sketch_path(path) if path else None
+    return app_url() + ("/?path=" + quote(ino) if ino else "")
+
+
+def _set_window_icon():
+    """pywebview умеет icon=, но не во всех версиях и не со всеми форматами."""
+    return ICON_PATH if os.path.exists(ICON_PATH) else None
+
+
 if __name__ == "__main__":
+    args = _parse_args(sys.argv[1:])
+    if args.port:
+        PORT = args.port
     set_taskbar_app_id()
 
-    # В собранном .exe без консоли пишем ошибки в лог-файл
+    # В собранном приложении без консоли пишем ошибки в лог-файл
     if IS_FROZEN:
         try:
-            logf = open(os.path.join(WORKSPACE, "uni-ide-log.txt"), "w", encoding="utf-8")
+            logf = open(os.path.join(WORKSPACE, APP_SLUG + "-log.txt"), "w", encoding="utf-8")
             sys.stdout = logf
             sys.stderr = logf
         except Exception:
@@ -1815,29 +2007,31 @@ if __name__ == "__main__":
     ensure_default_sketch()
     start_update_worker()      # фоновая проверка обновлений (тихая, офлайн-безопасная)
 
-    if HAS_WEBVIEW:
+    if HAS_WEBVIEW and not args.browser:
         # Flask в фоновом потоке, pywebview держит главный поток
         t = threading.Thread(target=start_flask, daemon=True)
         t.start()
         webview.create_window(
-            "UNI IDE",
-            "http://127.0.0.1:5000",
+            APP_TITLE,
+            ui_url(args.file),
             width=1280,
             height=800,
             min_size=(900, 600),
             maximized=True,
         )
-        # Иконка окна → отображается в заголовке (верхний левый угол),
-        # на панели задач и в Диспетчере задач Windows.
-        if os.path.exists(ICON_PATH):
+        # Иконка окна → заголовок окна, панель задач, переключатель окон.
+        icon = _set_window_icon()
+        if icon:
             try:
-                webview.start(icon=ICON_PATH)
+                webview.start(icon=icon)
             except TypeError:
                 webview.start()   # старые версии pywebview без параметра icon
         else:
             webview.start()
     else:
-        # Fallback: открыть в браузере
-        threading.Timer(1.2, lambda: webbrowser.open("http://127.0.0.1:5000")).start()
-        print("UNI IDE -> http://127.0.0.1:5000")
+        # Fallback: открыть в браузере (в Linux это штатный режим, если
+        # pywebview/GTK/WebKit не установлены).
+        if not args.no_open:
+            threading.Timer(1.2, lambda: webbrowser.open(ui_url(args.file))).start()
+        print(APP_TITLE + " -> " + app_url())
         start_flask()

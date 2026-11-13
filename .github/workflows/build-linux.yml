@@ -1,0 +1,72 @@
+name: build-linux
+
+# Сборка Linux-артефактов Luni IDE: Debian-пакет и AppImage.
+# Артефакты появляются в разделе Actions → нужный запуск (и в релизе при теге v*).
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Тесты (unittest)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Зависимости
+        run: python -m pip install --upgrade pip flask pyserial
+      - name: Запуск тестов
+        run: python -m unittest discover -s tests -v
+
+  packages:
+    name: .deb и AppImage
+    runs-on: ubuntu-22.04
+    needs: tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Зависимости сборки
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev
+          python -m pip install --upgrade pip pyinstaller flask pyserial
+
+      - name: appimagetool
+        run: |
+          mkdir -p packaging/vendor
+          curl -fsSL -o packaging/vendor/appimagetool-x86_64.AppImage \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x packaging/vendor/appimagetool-x86_64.AppImage
+
+      - name: Сборка (.deb + .AppImage)
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: python build_linux.py all --strict
+
+      - name: Контрольный список файлов
+        run: |
+          ls -la dist/
+          dpkg-deb -I dist/*.deb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: luni-ide-linux
+          if-no-files-found: error
+          path: |
+            dist/*.deb
+            dist/*.deb.sha256
+            dist/*.AppImage
+            dist/*.AppImage.sha256
+            dist/*.AppDir.tar.gz

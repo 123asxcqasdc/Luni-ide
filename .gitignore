@@ -1,5 +1,5 @@
 # ============================================================
-#  UNI IDE — .gitignore
+#  Luni IDE — .gitignore
 #  В репозиторий идут ТОЛЬКО исходники. Тяжёлые артефакты сборки
 #  и переносимый тулчейн (несколько ГБ) не коммитятся.
 #  Установщик раздаётся через GitHub Releases, а не из репо.
@@ -13,6 +13,14 @@
 /build-cache/
 *.spec
 
+# --- Артефакты Linux-сборки (build_linux.py) ---
+/packaging/vendor/
+*.AppImage
+*.AppImage.sha256
+*.AppDir.tar.gz
+*.deb
+*.deb.sha256
+
 # --- Переносимый тулчейн ESP32 (печётся prepare_bundle.py, ~6 ГБ) ---
 /arduino-data/
 /arduino-user/
@@ -25,6 +33,9 @@
 /Uni_Sketches/
 /UNI-Sketches/
 /UNI_Sketch/
+luni-ide-recent.json
+luni-ide-autocomplete.json
+luni-ide-log.txt
 uni-ide-recent.json
 uni-ide-autocomplete.json
 uni-ide-log.txt

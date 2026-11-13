@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>UNI IDE · ESP32 Dev Module</title>
+<title>Luni IDE · ESP32 Dev Module</title>
 <link rel="icon" type="image/png" href="/icon.png" />
 <link rel="shortcut icon" href="/favicon.ico" />
 
@@ -177,7 +177,7 @@
   select option { background: #fff; color: var(--text); }
   /* background-color (не shorthand), чтобы hover не стирал стрелку-картинку у select */
   select:hover, .btn:hover { background-color: rgba(255,255,255,0.30); }
-  /* стрелка ▾ у выбора COM-порта — тот же белый треугольник, что у кнопки «Файл» */
+  /* стрелка ▾ у выбора порта — тот же белый треугольник, что у кнопки «Файл» */
   header select {
     -webkit-appearance: none;
     appearance: none;
@@ -1306,7 +1306,7 @@
   <div class="spacer"></div>
 
   <div class="spin" id="spin"></div>
-  <select id="portSel" title="COM-порт"><option>порты…</option></select>
+  <select id="portSel" title="Порт платы"><option>порты…</option></select>
   <button class="btn icon ghost" id="refreshBtn" title="Обновить порты">
     <svg class="bi" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
   </button>
@@ -1894,10 +1894,10 @@ function setWorking(on) {
 function setStatus(msg) { $("#stMsg").textContent = msg; }
 
 /* ---------- env / ports ---------- */
-let APP_VERSION = "";                       // версия UNI IDE (из /api/env) — в заголовок окна
+let APP_VERSION = "";                       // версия Luni IDE (из /api/env) — в заголовок окна
 // Версию в заголовок не выносим — она и так видна в статус-баре справа внизу.
 function applyWindowTitle() {
-  document.title = "UNI IDE" + (currentName ? " · " + currentName : "");
+  document.title = "Luni IDE" + (currentName ? " · " + currentName : "");
 }
 /* Сегмент «среда» в статус-баре объединяет всё техническое (arduino-cli,
    ядро esp32, pyserial, прогрев) в одно понятное состояние; детали — в title. */
@@ -1918,7 +1918,7 @@ async function checkEnv() {
   _envOk = !!(e.arduino_cli && e.esp32_core);
   APP_VERSION = e.app_version || "";
   applyWindowTitle();
-  $("#verSeg").textContent = APP_VERSION ? "UNI IDE " + APP_VERSION : "";
+  $("#verSeg").textContent = APP_VERSION ? "Luni IDE " + APP_VERSION : "";
   $("#envSeg").title = [
     "arduino-cli: " + (e.arduino_cli ? "найден" : "НЕ найден"),
     "ядро esp32: " + (e.esp32_core ? "установлено" : "НЕ установлено"),
@@ -2011,14 +2011,16 @@ async function checkUpdates() {
     seg.style.display = "";
     $("#updLed").className = "led on";
     $("#updText").textContent = "обновление " + u.staged + " готово — перезапустите";
-    seg.title = "Новая версия уже скачана и включится при следующем запуске UNI IDE";
+    seg.title = "Новая версия уже скачана и включится при следующем запуске Luni IDE";
     seg.style.cursor = "default";
     seg.onclick = null;
   } else if (u.need_full) {
     seg.style.display = "";
     $("#updLed").className = "led warming";
-    $("#updText").textContent = "доступна " + u.need_full + " — скачать установщик";
-    seg.title = "Это обновление ставится полным установщиком. Нажмите, чтобы открыть страницу загрузки.";
+    $("#updText").textContent = "доступна " + u.need_full + " — скачать";
+    seg.title = u.mode === "manual"
+      ? "На Linux обновление ставится пакетом (.deb или .AppImage). Нажмите, чтобы открыть страницу загрузки."
+      : "Это обновление ставится полным установщиком. Нажмите, чтобы открыть страницу загрузки.";
     seg.style.cursor = "pointer";
     seg.onclick = () => api("/api/open", { url: u.release_url });
   } else {
@@ -2259,7 +2261,7 @@ async function upload() {
   const port = $("#portSel").value;
   if (!port) {
     setStatus("выберите порт"); switchPane("console");
-    logLine($("#console"), "✗ Сначала выберите COM-порт.", "err"); return;
+    logLine($("#console"), "✗ Сначала выберите порт платы.", "err"); return;
   }
   clearConsole();
   switchPane("console");

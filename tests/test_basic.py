@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Тесты базовых функций UNI IDE (серверное API).
+Тесты базовых функций Luni IDE (серверное API).
 
 Запуск из корня проекта:
     python -m unittest discover -s tests -v

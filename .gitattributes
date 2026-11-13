@@ -16,3 +16,13 @@
 *.CAT   binary
 *.inf   binary
 *.INF   binary
+
+# Linux-упаковка: только LF, иначе .desktop и launcher-скрипты ломаются
+*.desktop     text eol=lf
+*.desktop.in  text eol=lf
+*.metainfo    text eol=lf
+*.metainfo.xml.in text eol=lf
+*.in          text eol=lf
+*.sh          text eol=lf
+*.py          text eol=lf
+*.md          text eol=lf
